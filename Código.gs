@@ -16,10 +16,14 @@
  * Reemplaza 'ID_CARPETA_AQUI' con el ID real de cada carpeta en tu Google Drive.
  */
 const CARPETAS_DRIVE = {
-  'Gastronomía': 'ID_CARPETA_AQUI',
-  'Seguridad': 'ID_CARPETA_AQUI',
-  'Sistemas': 'ID_CARPETA_AQUI',
-  'Atención al cliente': 'ID_CARPETA_AQUI'
+  'Administrativo': '1rIrjR0KwGUFXK1uJKz6RuTQwIrZLoEEr',
+  'Atencion al publico': '1ojCiyiW4zHwBynBdbw0I6INyo0',
+  'Cajero': '10XuyJWshEMzvHs3jMJCLuumubbCrQ950',
+  'Comunity': '1rKMjZwvp1qc2rh9zX9AhZS0ldYTg2LOB',
+  'Gastronomia': '132qkj8QfcglRuwzXjDTdBb_8VtnnHG3W',
+  'Repositor': '1I9HIM6mrGm6tdngjvFo7GFb112CYaDd9',
+  'Seguridad': '1Qrdi5uCNO1j_hmG4D2CQFKgwlGK_qsiO',
+  'tecno': '1LFXk3gdhTH7DaUVKaAfuS3SpL5iK_p5q'
 };
 
 /**
@@ -97,10 +101,30 @@ function doPost(e) {
       });
     }
 
+    // 3. Ejecutar envío individual o por lote (batch)
+    if (Array.isArray(payload.items) && payload.items.length > 0) {
+      const results = [];
+      for (let i = 0; i < payload.items.length; i++) {
+        const item = payload.items[i];
+        const res = enviarCVCategoria(item.emailDestino || item.email, item.categoriaSeleccionada || item.category);
+        results.push({
+          id: item.id || i,
+          email: item.emailDestino || item.email,
+          category: item.categoriaSeleccionada || item.category,
+          ...res
+        });
+      }
+      return jsonResponse({
+        success: true,
+        batch: true,
+        results: results
+      });
+    }
+
     const emailDestino = payload.emailDestino || payload.email;
     const categoriaSeleccionada = payload.categoriaSeleccionada || payload.category;
 
-    // 3. Ejecutar envío seguro
+    // 4. Ejecutar envío individual seguro
     const resultado = enviarCVCategoria(emailDestino, categoriaSeleccionada);
     return jsonResponse(resultado);
 
