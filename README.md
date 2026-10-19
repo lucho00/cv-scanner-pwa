@@ -10,10 +10,16 @@ Aplicación Web Progresiva (**PWA**) mobile-first para capturar o subir imágene
 - **Subida Dual (Cámara o Galería)**:
   - Botón directo para tomar foto con la cámara trasera.
   - Botón para explorar la galería de fotos o archivos locales (JPG, PNG, WEBP).
-- **OCR Acelerado en el Cliente**:
-  - Utiliza **Tesseract.js v5** (sin dependencias de pago).
-  - Optimización automática con **HTML5 Canvas**: reduce imágenes pesadas de 12 MP antes del procesamiento, logrando detección en 2-3 segundos sin saturar la memoria RAM del celular.
-  - Extracción de emails mediante expresiones regulares sanitizadas.
+- **Herramienta Integrada de Recorte y Zoom (Cropper.js)**:
+  - Permite hacer zoom táctil (pinch-to-zoom), rotar fotos tomadas de lado (-90° / +90°) y encuadrar con precisión quirúrgica el bloque de datos de contacto o email.
+  - Botón directo "⚡ Recortar y Leer" para escanear instantáneamente la selección.
+  - Opción para restablecer la foto original en cualquier momento.
+- **OCR de Alta Precisión y Alcance**:
+  - Utiliza **Tesseract.js v5** con preprocesamiento adaptativo en **HTML5 Canvas**.
+  - **Filtro de Alto Contraste y Normalización**: ecualiza la iluminación, elimina sombras de celulares y convierte fondos grises a blanco puro con letras nítidas.
+  - **Auto-inversión inteligente**: detecta si el encabezado tiene fondo oscuro con letras claras y lo invierte automáticamente para máxima lectura.
+  - **Normalizador heurístico de correos**: corrige errores típicos de OCR (espacios accidentales alrededor de `@` o `.`, confusiones con `©`/`®`/`[at]`, corrección de extensiones `.con` -> `.com`).
+  - **Sugerencias múltiples**: si el CV contiene más de un correo, presenta botones interactivos (chips) para alternar el destinatario con un solo toque.
 - **Backend Serverless con Google Apps Script**:
   - Consulta dinámica de categorías configuradas en Google Drive (`doGet`).
   - Despacho de correos vía GmailApp con adjunto automático (`doPost`).
