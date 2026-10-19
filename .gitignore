@@ -1,0 +1,15 @@
+# Logs y temporales
+*.log
+*.tmp
+
+# Archivos del sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Archivos de auditoría local
+*Auditor*
+
+# Binarios locales de Tesseract (la PWA usa jsDelivr CDN para despliegue ligero)
+tessdata/
+vendor/
