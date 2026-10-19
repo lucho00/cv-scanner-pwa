@@ -3,7 +3,7 @@
  * Habilita instalación nativa, caché offline y cumplimiento de criterios PWA.
  */
 
-const CACHE_NAME = 'cv-scanner-v4';
+const CACHE_NAME = 'cv-scanner-v5';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
@@ -38,15 +38,21 @@ self.addEventListener('activate', (event) => {
 
 // Intercepción de peticiones
 self.addEventListener('fetch', (event) => {
-  const requestUrl = new URL(event.request.url);
-
-  // Las peticiones al backend de Google Apps Script van siempre por red
-  if (requestUrl.hostname.includes('script.google.com') || requestUrl.hostname.includes('googleusercontent.com')) {
-    event.respondWith(fetch(event.request));
+  // 1. NO interceptar peticiones que no sean GET (ej: envíos POST de CV)
+  // Dejar que el navegador las maneje de forma nativa sin pasar por el Service Worker
+  if (event.request.method !== 'GET') {
     return;
   }
 
-  // Para recursos estáticos y librerías CDN: Estrategia Stale-While-Revalidate / Cache-First
+  const requestUrl = new URL(event.request.url);
+
+  // 2. NO interceptar peticiones hacia Google Apps Script (doGet o doPost)
+  // Se procesan 100% en vivo por red directamente por el navegador
+  if (requestUrl.hostname.includes('script.google.com') || requestUrl.hostname.includes('googleusercontent.com')) {
+    return;
+  }
+
+  // 3. Para recursos estáticos y librerías CDN: Estrategia Stale-While-Revalidate / Cache-First
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {

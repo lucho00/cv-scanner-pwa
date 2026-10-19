@@ -1596,6 +1596,9 @@
         showToast('⚠️ La URL debe comenzar con https://script.google.com/...', 'warning', 4500);
         return;
       }
+      if (val.endsWith('/dev')) {
+        showToast('⚠️ Cuidado: La URL termina en /dev. Para enviar correos en producción debes usar la URL que termina en /exec.', 'warning', 6500);
+      }
       localStorage.setItem('cv_scanner_backend_url', val);
       settingsModal.style.display = 'none';
       checkBackendConfig();
@@ -1604,15 +1607,19 @@
     });
 
     btnTestBackend.addEventListener('click', async () => {
-      const url = backendUrlInput.value.trim();
+      let url = backendUrlInput.value.trim();
       if (!url) {
         showToast('⚠️ Ingresa una URL primero.', 'warning', 3000);
         return;
       }
+      if (url.endsWith('/dev')) {
+        showToast('⚠️ La URL termina en /dev. Para producción debe terminar en /exec.', 'warning', 6000);
+      }
       btnTestBackend.disabled = true;
       btnTestBackend.innerHTML = '<span class="spinner"></span> Probando...';
       try {
-        const res = await fetch(`${url}?action=getCategories`, { method: 'GET' });
+        const testUrl = `${url}${url.includes('?') ? '&' : '?'}action=getCategories`;
+        const res = await fetch(testUrl, { method: 'GET' });
         const data = await res.json();
         if (data && data.success && Array.isArray(data.categories)) {
           showToast(`✅ Conexión exitosa. Categorías recibidas: ${data.categories.length}`, 'success', 4000);
@@ -1622,7 +1629,7 @@
           showToast(`⚠️ Conexión respondida pero con formato inesperado: ${JSON.stringify(data)}`, 'warning', 5000);
         }
       } catch (err) {
-        showToast(`❌ Error al conectar: ${err.message}`, 'error', 5000);
+        showToast(`❌ Error al conectar: ${err.message}.<br><small>Verifica que en Google Apps Script "Quién tiene acceso" esté en <b>"Cualquier persona"</b>.</small>`, 'error', 8000);
       } finally {
         btnTestBackend.disabled = false;
         btnTestBackend.innerHTML = '🔍 Probar conexión';
@@ -2619,6 +2626,68 @@
     // =========================================================================
     const regexEmail = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}$/;
 
+    /**
+     * Comunicación robusta con Google Apps Script:
+     * Intenta POST con Content-Type text/plain (para evitar preflight OPTIONS).
+     * Si el navegador bloquea la redirección del POST, recurre automáticamente al fallback GET.
+     */
+    async function realizarEnvioBackend(backendUrl, payload) {
+      const cleanUrl = (backendUrl || '').trim();
+      if (!cleanUrl) {
+        throw new Error('Debes configurar la URL de tu Google Apps Script en el engranaje ⚙️.');
+      }
+      if (cleanUrl.endsWith('/dev')) {
+        throw new Error('La URL termina en "/dev" (modo prueba). Debes usar la URL de implementación que termina en "/exec".');
+      }
+
+      let lastError = null;
+
+      // Intento 1: POST directo con text/plain
+      try {
+        const postRes = await fetch(cleanUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain;charset=utf-8'
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (postRes.ok) {
+          const postData = await postRes.json();
+          return postData;
+        }
+      } catch (postErr) {
+        lastError = postErr;
+        console.warn('POST directo no completado, activando fallback GET...', postErr);
+      }
+
+      // Intento 2: Fallback GET (acción sendCV vía doGet)
+      try {
+        const params = new URLSearchParams();
+        params.append('action', 'sendCV');
+        params.append('email', payload.emailDestino || payload.email || '');
+        params.append('category', payload.categoriaSeleccionada || payload.category || '');
+        if (payload.apiToken) {
+          params.append('apiToken', payload.apiToken);
+        }
+
+        const getUrl = `${cleanUrl}${cleanUrl.includes('?') ? '&' : '?'}${params.toString()}`;
+        const getRes = await fetch(getUrl, {
+          method: 'GET'
+        });
+
+        if (getRes.ok) {
+          const getData = await getRes.json();
+          return getData;
+        }
+      } catch (getErr) {
+        lastError = getErr;
+        console.error('Fallback GET no completado:', getErr);
+      }
+
+      throw lastError || new Error('No se pudo establecer conexión con el backend.');
+    }
+
     async function enviarItemIndividual(id) {
       const item = itemsQueue.find(i => i.id === id);
       if (!item) return;
@@ -2649,15 +2718,10 @@
       renderQueue();
 
       try {
-        const response = await fetch(backendUrl, {
-          method: 'POST',
-          body: JSON.stringify({
-            emailDestino: item.email,
-            categoriaSeleccionada: item.category
-          })
+        const data = await realizarEnvioBackend(backendUrl, {
+          emailDestino: item.email,
+          categoriaSeleccionada: item.category
         });
-
-        const data = await response.json();
 
         if (data && data.success) {
           item.status = 'sent';
@@ -2672,7 +2736,15 @@
         console.error('Error de red al enviar:', err);
         item.status = 'error';
         item.statusText = 'Error de red';
-        showToast(`❌ Error de conexión: ${err.message}`, 'error', 6000);
+
+        const errMsg = err.message || '';
+        if (errMsg.includes('/dev')) {
+          showToast(`❌ ${errMsg}`, 'error', 8000);
+        } else if (errMsg.includes('Failed to fetch') || errMsg.includes('NetworkError') || errMsg.includes('conexion')) {
+          showToast(`❌ <b>Error de conexión con Google Apps Script</b><br><small>Verifica que en Apps Script la implementación tenga acceso <b>"Cualquier persona"</b> (no "Solo yo") y termine en <b>/exec</b>.</small>`, 'error', 9000);
+        } else {
+          showToast(`❌ Error de conexión: ${errMsg}`, 'error', 6000);
+        }
       } finally {
         persistItemToDB(item);
         renderQueue();
@@ -2715,14 +2787,10 @@
         renderQueue();
 
         try {
-          const response = await fetch(backendUrl, {
-            method: 'POST',
-            body: JSON.stringify({
-              emailDestino: item.email,
-              categoriaSeleccionada: item.category
-            })
+          const data = await realizarEnvioBackend(backendUrl, {
+            emailDestino: item.email,
+            categoriaSeleccionada: item.category
           });
-          const data = await response.json();
           if (data && data.success) {
             item.status = 'sent';
             item.statusText = 'Enviado con éxito';
@@ -2750,11 +2818,13 @@
     // 8. OBTENCIÓN DE CATEGORÍAS DEL BACKEND
     // =========================================================================
     async function cargarCategoriasDesdeBackend() {
-      const backendUrl = getBackendUrl();
+      let backendUrl = getBackendUrl();
       if (!backendUrl) return;
+      backendUrl = backendUrl.trim();
 
       try {
-        const response = await fetch(`${backendUrl}?action=getCategories`, { method: 'GET' });
+        const getUrl = `${backendUrl}${backendUrl.includes('?') ? '&' : '?'}action=getCategories`;
+        const response = await fetch(getUrl, { method: 'GET' });
         const data = await response.json();
         if (data && data.success && Array.isArray(data.categories) && data.categories.length > 0) {
           availableCategories = data.categories;

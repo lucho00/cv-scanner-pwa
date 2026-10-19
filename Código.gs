@@ -49,7 +49,8 @@ function obtenerCategorias() {
  */
 function doGet(e) {
   try {
-    const action = e && e.parameter ? e.parameter.action : null;
+    const params = (e && e.parameter) ? e.parameter : {};
+    const action = params.action;
 
     if (action === 'getCategories') {
       return jsonResponse({
@@ -58,10 +59,26 @@ function doGet(e) {
       });
     }
 
+    // Soporte para envío de CV vía GET (máxima compatibilidad CORS en móviles y navegadores)
+    if (action === 'sendCV') {
+      if (API_SECRET_TOKEN && params.apiToken !== API_SECRET_TOKEN) {
+        return jsonResponse({
+          success: false,
+          message: 'Acceso no autorizado: Token de seguridad inválido.'
+        });
+      }
+
+      const emailDestino = params.emailDestino || params.email;
+      const categoriaSeleccionada = params.categoriaSeleccionada || params.category;
+
+      const resultado = enviarCVCategoria(emailDestino, categoriaSeleccionada);
+      return jsonResponse(resultado);
+    }
+
     return ContentService.createTextOutput(JSON.stringify({
       status: 'online',
       service: 'CV Scanner API Backend',
-      version: '2.1.0',
+      version: '2.2.0',
       timestamp: new Date().toISOString()
     })).setMimeType(ContentService.MimeType.JSON);
 
