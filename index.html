@@ -724,6 +724,80 @@
       color: #fff;
     }
 
+    /* Fila de Input con Botones de Acción (WhatsApp, Maps, Copiar) */
+    .input-action-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .btn-icon-action {
+      height: 38px;
+      padding: 0 10px;
+      border-radius: var(--radius-sm);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      font-size: 0.74rem;
+      font-weight: 700;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+      touch-action: manipulation;
+    }
+
+    .btn-whatsapp {
+      background: #065f46;
+      color: #6ee7b7;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+    }
+
+    .btn-whatsapp:hover, .btn-whatsapp:active {
+      background: #047857;
+      color: #fff;
+      transform: scale(0.97);
+    }
+
+    .btn-maps {
+      background: #1e3a8a;
+      color: #93c5fd;
+      border: 1px solid rgba(59, 130, 246, 0.4);
+    }
+
+    .btn-maps:hover, .btn-maps:active {
+      background: #1d4ed8;
+      color: #fff;
+      transform: scale(0.97);
+    }
+
+    .btn-copy-field {
+      background: var(--bg-card);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-color);
+      width: 38px;
+      padding: 0;
+    }
+
+    .btn-copy-field:hover, .btn-copy-field:active {
+      border-color: #818cf8;
+      color: #fff;
+      transform: scale(0.96);
+    }
+
+    .field-notice {
+      font-size: 0.72rem;
+      color: #fbbf24;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      padding: 6px 8px;
+      border-radius: var(--radius-sm);
+      margin-top: 4px;
+      line-height: 1.35;
+    }
+
     /* Modal de Recorte y Zoom */
     .crop-modal {
       display: none;
@@ -1282,6 +1356,154 @@
     let toastTimeout = null;
 
     // =========================================================================
+    // 1.1 MOTOR DE PERSISTENCIA LOCAL (INDEXEDDB - NUNCA SE PIERDE NADA)
+    // =========================================================================
+    const DB_NAME = 'CVScannerDB';
+    const DB_VERSION = 1;
+    const STORE_NAME = 'queue';
+
+    function openDatabase() {
+      return new Promise((resolve) => {
+        if (!('indexedDB' in window)) {
+          console.warn('IndexedDB no soportado en este navegador');
+          resolve(null);
+          return;
+        }
+        const request = indexedDB.open(DB_NAME, DB_VERSION);
+        request.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE_NAME)) {
+            db.createObjectStore(STORE_NAME, { keyPath: 'id' });
+          }
+        };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => {
+          console.warn('Error al abrir IndexedDB:', request.error);
+          resolve(null);
+        };
+      });
+    }
+
+    async function persistItemToDB(item) {
+      try {
+        const db = await openDatabase();
+        if (!db) return;
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+
+        const record = {
+          id: item.id,
+          name: item.name,
+          sizeMb: item.sizeMb,
+          originalBlob: item.originalFile || item.file,
+          processedBlob: item.processedBlob || null,
+          isCropped: !!item.isCropped,
+          category: item.category,
+          email: item.email || '',
+          allDetectedEmails: item.allDetectedEmails || [],
+          phone: item.phone || '',
+          allDetectedPhones: item.allDetectedPhones || [],
+          address: item.address || '',
+          status: item.status,
+          statusText: item.statusText,
+          isAutoEmail: !!item.isAutoEmail,
+          isAutoPhone: !!item.isAutoPhone,
+          isAutoAddress: !!item.isAutoAddress,
+          progress: item.progress || 0,
+          timestamp: item.timestamp || Date.now()
+        };
+
+        store.put(record);
+        tx.oncomplete = () => db.close();
+      } catch (err) {
+        console.warn('Error guardando en IndexedDB:', err);
+      }
+    }
+
+    async function removeItemFromDB(itemId) {
+      try {
+        const db = await openDatabase();
+        if (!db) return;
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.delete(itemId);
+        tx.oncomplete = () => db.close();
+      } catch (err) {
+        console.warn('Error eliminando de IndexedDB:', err);
+      }
+    }
+
+    async function clearAllFromDB() {
+      try {
+        const db = await openDatabase();
+        if (!db) return;
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        store.clear();
+        tx.oncomplete = () => db.close();
+      } catch (err) {
+        console.warn('Error vaciando IndexedDB:', err);
+      }
+    }
+
+    async function loadQueueFromDB() {
+      try {
+        const db = await openDatabase();
+        if (!db) return [];
+        return new Promise((resolve) => {
+          const tx = db.transaction(STORE_NAME, 'readonly');
+          const store = tx.objectStore(STORE_NAME);
+          const request = store.getAll();
+          request.onsuccess = () => {
+            const records = request.result || [];
+            db.close();
+
+            const restored = records.map(rec => {
+              const originalFile = rec.originalBlob;
+              const originalPreview = URL.createObjectURL(originalFile);
+              const activePreview = rec.processedBlob ? URL.createObjectURL(rec.processedBlob) : originalPreview;
+
+              return {
+                id: rec.id,
+                file: originalFile,
+                originalFile: originalFile,
+                processedBlob: rec.processedBlob,
+                name: rec.name,
+                sizeMb: rec.sizeMb,
+                previewUrl: activePreview,
+                originalPreviewUrl: originalPreview,
+                isCropped: rec.isCropped,
+                category: rec.category,
+                email: rec.email,
+                allDetectedEmails: rec.allDetectedEmails || [],
+                phone: rec.phone || '',
+                allDetectedPhones: rec.allDetectedPhones || [],
+                address: rec.address || '',
+                status: rec.status,
+                statusText: rec.statusText,
+                isAutoEmail: rec.isAutoEmail,
+                isAutoPhone: rec.isAutoPhone,
+                isAutoAddress: rec.isAutoAddress,
+                progress: rec.progress,
+                timestamp: rec.timestamp
+              };
+            });
+
+            restored.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+            resolve(restored);
+          };
+          request.onerror = () => {
+            db.close();
+            resolve([]);
+          };
+        });
+      } catch (err) {
+        console.warn('Error cargando de IndexedDB:', err);
+        return [];
+      }
+    }
+
+    // =========================================================================
     // 2. REGISTRO SERVICE WORKER E INSTALACIÓN PWA
     // =========================================================================
     if ('serviceWorker' in navigator) {
@@ -1583,6 +1805,7 @@
       }
       item.previewUrl = URL.createObjectURL(croppedBlob);
 
+      persistItemToDB(item);
       renderQueue();
       showToast('✂️ Recorte aplicado correctamente.', 'success', 2500);
 
@@ -1604,6 +1827,7 @@
       item.processedBlob = null;
       item.isCropped = false;
 
+      persistItemToDB(item);
       renderQueue();
       showToast('↺ Imagen restablecida al original completo.', 'info', 2500);
     }
@@ -1635,13 +1859,20 @@
           category: availableCategories[0] || 'Administrativo',
           email: '',
           allDetectedEmails: [],
+          phone: '',
+          allDetectedPhones: [],
+          address: '',
           status: 'idle', // 'idle' | 'scanning' | 'scanned' | 'sending' | 'sent' | 'error'
           statusText: 'Sin escanear',
           isAutoEmail: false,
-          progress: 0
+          isAutoPhone: false,
+          isAutoAddress: false,
+          progress: 0,
+          timestamp: Date.now()
         };
 
         itemsQueue.push(item);
+        persistItemToDB(item);
         addedCount++;
       }
 
@@ -1673,14 +1904,32 @@
           }
         });
         itemsQueue = [];
+        clearAllFromDB();
         renderQueue();
         showToast('Cola vaciada.', 'info', 2000);
       }
     });
 
     // =========================================================================
-    // 5. RENDERIZADO DE LA COLA EN EL DOM
+    // 5. RENDERIZADO DE LA COLA EN EL DOM Y ACCIONES
     // =========================================================================
+    function formatWhatsAppLink(phone, category = 'General', senderName = 'Luciano Bibbo') {
+      if (!phone) return '#';
+      let digits = phone.replace(/\D/g, '');
+
+      if (digits.startsWith('0')) digits = digits.substring(1);
+      if (digits.length === 10) {
+        digits = '549' + digits;
+      } else if (digits.startsWith('54') && !digits.startsWith('549')) {
+        digits = '549' + digits.substring(2);
+      } else if (!digits.startsWith('54') && digits.length >= 8 && digits.length <= 11) {
+        digits = '549' + digits;
+      }
+
+      const message = `Hola! Te contacto por la postulación laboral para el área de ${category}. Mi nombre es ${senderName}.`;
+      return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+    }
+
     function renderQueue() {
       if (itemsQueue.length === 0) {
         queueToolbar.style.display = 'none';
@@ -1742,6 +1991,7 @@
             </div>
 
             <div class="card-fields">
+              <!-- Categoría de CV -->
               <div class="field-group">
                 <label class="field-label">
                   <span>📂 Categoría de CV</span>
@@ -1751,6 +2001,7 @@
                 </select>
               </div>
 
+              <!-- Correo Electrónico Destino -->
               <div class="field-group">
                 <label class="field-label">
                   <span>✉️ Correo Destino</span>
@@ -1767,13 +2018,107 @@
                 />
                 ${item.allDetectedEmails && item.allDetectedEmails.length > 1 ? `
                   <div class="email-suggestions">
-                    <span style="font-size: 0.68rem; color: var(--text-muted); align-self: center;">Opciones:</span>
+                    <span style="font-size: 0.68rem; color: var(--text-muted); align-self: center;">Otros correos:</span>
                     ${item.allDetectedEmails.map(em => `
                       <span class="email-pill" data-action="select-email-pill" data-id="${item.id}" data-email="${em}" title="Toca para usar este correo">${em}</span>
                     `).join('')}
                   </div>
                 ` : ''}
               </div>
+
+              <!-- WhatsApp / Teléfono -->
+              <div class="field-group">
+                <label class="field-label">
+                  <span>📱 WhatsApp / Teléfono</span>
+                  ${item.isAutoPhone ? '<span class="field-label-tag">✓ OCR</span>' : ''}
+                </label>
+                <div class="input-action-row">
+                  <input 
+                    type="tel" 
+                    class="card-input" 
+                    data-id="${item.id}" 
+                    data-action="phone"
+                    placeholder="Ej: 11 4455-6677 o +54 9 11..." 
+                    value="${item.phone || ''}"
+                    autocomplete="tel"
+                  />
+                  ${item.phone ? `
+                    <a 
+                      href="${formatWhatsAppLink(item.phone, item.category, 'Luciano Bibbo')}" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      class="btn-icon-action btn-whatsapp" 
+                      title="Abrir chat en WhatsApp"
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.711 2.598 2.664-.698c.971.53 1.762.823 2.796.824h.005c3.182 0 5.768-2.587 5.768-5.766.001-3.182-2.585-5.771-5.773-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.312.045-.694.06-1.096-.069-.252-.081-.577-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.007c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86.173.086.275.072.376-.044.101-.116.433-.506.549-.68.116-.173.231-.145.39-.087s1.011.477 1.184.564.289.13.332.202c.045.072.045.419-.099.824zm-3.392-10.416c-4.291 0-7.772 3.481-7.772 7.772 0 1.458.399 2.823 1.096 3.996l-1.155 4.221 4.34-1.139c1.134.619 2.428.95 3.791.95 4.291 0 7.772-3.481 7.772-7.772 0-4.292-3.48-7.772-7.772-7.772z"/></svg>
+                      <span>WhatsApp</span>
+                    </a>
+                    <button 
+                      type="button" 
+                      class="btn-icon-action btn-copy-field" 
+                      data-action="copy-phone" 
+                      data-phone="${item.phone}" 
+                      title="Copiar número de teléfono"
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                  ` : ''}
+                </div>
+                ${item.allDetectedPhones && item.allDetectedPhones.length > 1 ? `
+                  <div class="email-suggestions">
+                    <span style="font-size: 0.68rem; color: var(--text-muted); align-self: center;">Otros números:</span>
+                    ${item.allDetectedPhones.map(ph => `
+                      <span class="email-pill" data-action="select-phone-pill" data-id="${item.id}" data-phone="${ph}" title="Usar este número">${ph}</span>
+                    `).join('')}
+                  </div>
+                ` : ''}
+              </div>
+
+              <!-- Dirección / Ubicación Física -->
+              <div class="field-group">
+                <label class="field-label">
+                  <span>📍 Dirección / Entrevista</span>
+                  ${item.isAutoAddress ? '<span class="field-label-tag">✓ OCR</span>' : ''}
+                </label>
+                <div class="input-action-row">
+                  <input 
+                    type="text" 
+                    class="card-input" 
+                    data-id="${item.id}" 
+                    data-action="address"
+                    placeholder="Ej: Av. Corrientes 1540 o San Martín 450" 
+                    value="${item.address || ''}"
+                  />
+                  ${item.address ? `
+                    <a 
+                      href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.address)}" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      class="btn-icon-action btn-maps" 
+                      title="Abrir en Google Maps"
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                      <span>Maps</span>
+                    </a>
+                    <button 
+                      type="button" 
+                      class="btn-icon-action btn-copy-field" 
+                      data-action="copy-address" 
+                      data-address="${item.address}" 
+                      title="Copiar dirección"
+                    >
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                  ` : ''}
+                </div>
+              </div>
+
+              <!-- Aviso si no hay correo pero sí WhatsApp o dirección -->
+              ${!item.email && (item.phone || item.address) ? `
+                <div class="field-notice">
+                  💡 <b>Sin correo electrónico:</b> Puedes tocar el botón verde para contactar por <b>WhatsApp</b> o el botón azul para ver la ubicación en <b>Google Maps</b>.
+                </div>
+              ` : ''}
             </div>
           </div>
 
@@ -1787,7 +2132,7 @@
               class="btn-card btn-card-crop" 
               data-id="${item.id}" 
               data-action="crop"
-              title="Abre la herramienta para encuadrar y hacer zoom en el correo"
+              title="Abre la herramienta para encuadrar y hacer zoom en el correo o WhatsApp"
               ${item.status === 'scanning' || item.status === 'sending' ? 'disabled' : ''}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
@@ -1812,10 +2157,10 @@
               data-id="${item.id}" 
               data-action="send"
               title="Enviar CV por correo"
-              ${item.status === 'scanning' || item.status === 'sending' || item.status === 'sent' ? 'disabled' : ''}
+              ${item.status === 'scanning' || item.status === 'sending' || item.status === 'sent' || !item.email ? 'disabled' : ''}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-              ${item.status === 'sent' ? '✓ CV Enviado con éxito' : 'Enviar CV'}
+              ${item.status === 'sent' ? '✓ CV Enviado con éxito' : (!item.email ? 'Enviar CV (falta email)' : 'Enviar CV por Gmail')}
             </button>
           </div>
         `;
@@ -1840,6 +2185,7 @@
             URL.revokeObjectURL(itemsQueue[idx].originalPreviewUrl);
           }
           itemsQueue.splice(idx, 1);
+          removeItemFromDB(id);
           renderQueue();
         }
       } else if (action === 'crop') {
@@ -1851,8 +2197,36 @@
         const item = itemsQueue.find(i => i.id === id);
         if (item && emailChoice) {
           item.email = emailChoice;
+          persistItemToDB(item);
           renderQueue();
-          showToast(`✉️ Seleccionado: <b>${emailChoice}</b>`, 'info', 2000);
+          showToast(`✉️ Correo seleccionado: <b>${emailChoice}</b>`, 'info', 2000);
+        }
+      } else if (action === 'select-phone-pill') {
+        const phoneChoice = target.getAttribute('data-phone');
+        const item = itemsQueue.find(i => i.id === id);
+        if (item && phoneChoice) {
+          item.phone = phoneChoice;
+          persistItemToDB(item);
+          renderQueue();
+          showToast(`📱 Teléfono seleccionado: <b>${phoneChoice}</b>`, 'info', 2000);
+        }
+      } else if (action === 'copy-phone') {
+        const phone = target.getAttribute('data-phone');
+        if (phone) {
+          navigator.clipboard.writeText(phone).then(() => {
+            showToast(`📋 Teléfono copiado: <b>${phone}</b>`, 'success', 2500);
+          }).catch(() => {
+            showToast(`Teléfono: ${phone}`, 'info', 3000);
+          });
+        }
+      } else if (action === 'copy-address') {
+        const addr = target.getAttribute('data-address');
+        if (addr) {
+          navigator.clipboard.writeText(addr).then(() => {
+            showToast(`📋 Dirección copiada: <b>${addr}</b>`, 'success', 2500);
+          }).catch(() => {
+            showToast(`Dirección: ${addr}`, 'info', 3000);
+          });
         }
       } else if (action === 'zoom') {
         const url = target.getAttribute('data-url');
@@ -1876,8 +2250,18 @@
       if (action === 'email') {
         item.email = target.value.trim();
         item.isAutoEmail = false;
+        persistItemToDB(item);
       } else if (action === 'category') {
         item.category = target.value;
+        persistItemToDB(item);
+      } else if (action === 'phone') {
+        item.phone = target.value.trim();
+        item.isAutoPhone = false;
+        persistItemToDB(item);
+      } else if (action === 'address') {
+        item.address = target.value.trim();
+        item.isAutoAddress = false;
+        persistItemToDB(item);
       }
     });
 
@@ -1957,6 +2341,68 @@
     }
 
     /**
+     * Extrae números de teléfono y WhatsApp (nacionales e internacionales)
+     */
+    function extractPhones(rawText) {
+      if (!rawText) return [];
+      const text = rawText.replace(/\r\n/g, '\n');
+      const candidates = [];
+
+      // 1. Precedido por palabras clave de contacto o WhatsApp
+      const kwRegex = /(?:whatsapp|wsp|wapp|cel(?:ular)?|tel(?:[eé]fono)?|m[oó]vil|contacto)\s*[:\-\s]\s*([+0-9\s().-]{7,25})/gi;
+      let match;
+      while ((match = kwRegex.exec(text)) !== null) {
+        const rawMatch = match[1].trim();
+        const digitsOnly = rawMatch.replace(/\D/g, '');
+        if (digitsOnly.length >= 8 && digitsOnly.length <= 15) {
+          candidates.push(rawMatch.replace(/[.,;:\s]+$/, ''));
+        }
+      }
+
+      // 2. Patrones genéricos de números de teléfono móviles o fijos
+      const phonePattern = /(?:\+?54[\s-]?(?:9[\s-]?)?)?(?:\(?0?[1-9]{2,4}\)?[\s-]?)?(?:15[\s-]?)?\d{3,4}[\s.-]?\d{4}\b/g;
+      let pMatch;
+      while ((pMatch = phonePattern.exec(text)) !== null) {
+        const raw = pMatch[0].trim();
+        const digits = raw.replace(/\D/g, '');
+        if (digits.length >= 8 && digits.length <= 14 && !digits.startsWith('19') && !digits.startsWith('20')) {
+          candidates.push(raw);
+        }
+      }
+
+      const cleaned = candidates.map(c => {
+        return c.replace(/^[<(\s:]+/, '').replace(/[.,;:)>\]\s]+$/, '').trim();
+      });
+
+      return Array.from(new Set(cleaned));
+    }
+
+    /**
+     * Extrae dirección física / domicilio (calle y número)
+     */
+    function extractAddress(rawText) {
+      if (!rawText) return '';
+      const text = rawText.replace(/\r\n/g, '\n');
+
+      // 1. Precedido por palabra clave de dirección
+      const kwAddress = /(?:direcci[oó]n|domicilio|ubicaci[oó]n|lugar de entrevista|lugar|presentarse en|entrevistas? en)\s*[:\-\s]\s*([^\n\r,.;]{4,60}\b\d{1,5}(?:\s*(?:piso|depto|dpto|oficina|of\.?|timbre)\s*[A-Za-z0-9]+)?)/i;
+      const kwMatch = text.match(kwAddress);
+      if (kwMatch && kwMatch[1]) {
+        let addr = kwMatch[1].trim().replace(/^de entrevista:?\s*/i, '');
+        return addr.replace(/^[<(\s:]+/, '').replace(/[.,;:)>\]\s]+$/, '').trim();
+      }
+
+      // 2. Patrón de calle/avenida + numeración (ej: Av. Santa Fe 1234, Calle San Martín 450)
+      const streetPattern = /\b(?:Av(?:enida|\.)?|Calle|Pje\.?|Pasaje|Bv\.?|Bulevar|Ruta)\s+[A-Za-zÀ-ÿ0-9\s.]{3,35}\s+\d{1,5}(?:\s*(?:piso|depto|dpto|oficina|of\.?|timbre)\s*[A-Za-z0-9]+)?\b/i;
+      const sMatch = text.match(streetPattern);
+      if (sMatch) {
+        return sMatch[0].trim().replace(/^[<(\s:]+/, '').replace(/[.,;:)>\]\s]+$/, '').trim();
+      }
+
+      return '';
+    }
+
+    /**
      * Preprocesamiento inteligente en Canvas:
      * - Ajuste óptimo de escala (upscaling para recortes pequeños, downscaling seguro para fotos pesadas).
      * - Normalización de iluminación (Auto-level & histogram stretch).
@@ -1973,8 +2419,6 @@
           let width = img.naturalWidth || img.width;
           let height = img.naturalHeight || img.height;
 
-          // Dimensionamiento inteligente:
-          // Si es un recorte pequeño, aumentamos escala para que el tamaño de las letras supere los 30px
           if (isCropped && width < 900 && height < 900) {
             const factor = Math.min(2.5, 900 / Math.max(width, height));
             if (factor > 1.2) {
@@ -1999,12 +2443,10 @@
           canvas.height = height;
           const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
-          // Fondo blanco por defecto
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Filtro de contraste adaptativo
           try {
             const imgData = ctx.getImageData(0, 0, width, height);
             const d = imgData.data;
@@ -2024,7 +2466,7 @@
             }
 
             const avgLum = sumLum / totalPixels;
-            const isDarkBackground = avgLum < 110; // Texto claro sobre fondo oscuro
+            const isDarkBackground = avgLum < 110;
             const range = maxLum - minLum || 1;
             const scale = 255 / range;
 
@@ -2032,11 +2474,9 @@
               let val = (lums[j] - minLum) * scale;
 
               if (isDarkBackground) {
-                // Invertir para que Tesseract reciba texto oscuro sobre papel blanco
                 val = 255 - val;
               }
 
-              // Curva de contraste: profundiza texto oscuro y aclara fondo
               if (val < 130) {
                 val = Math.max(0, val * 0.72);
               } else {
@@ -2083,7 +2523,6 @@
       if (progressBar) progressBar.style.display = 'block';
 
       try {
-        // Usar recorte si existe, o archivo original
         const targetSource = item.processedBlob || item.file;
         const preprocessedCanvas = await prepareCanvasForOcr(targetSource, item.isCropped);
 
@@ -2103,18 +2542,43 @@
 
         const text = result?.data?.text || '';
         const emails = extractEmails(text);
+        const phones = extractPhones(text);
+        const address = extractAddress(text);
+
+        let detectedCount = 0;
 
         if (emails.length > 0) {
           item.email = emails[0];
           item.allDetectedEmails = emails;
           item.isAutoEmail = true;
+          detectedCount++;
+        }
+
+        if (phones.length > 0) {
+          item.phone = phones[0];
+          item.allDetectedPhones = phones;
+          item.isAutoPhone = true;
+          detectedCount++;
+        }
+
+        if (address) {
+          item.address = address;
+          item.isAutoAddress = true;
+          detectedCount++;
+        }
+
+        if (detectedCount > 0) {
           item.status = 'scanned';
-          item.statusText = 'Email detectado';
-          showToast(`✅ Correo detectado: <b>${item.email}</b>${emails.length > 1 ? ` (+${emails.length - 1} sugerencias)` : ''}`, 'success', 3500);
+          item.statusText = 'Datos detectados';
+          const summaryParts = [];
+          if (item.email) summaryParts.push('✉️ ' + item.email);
+          if (item.phone) summaryParts.push('📱 ' + item.phone);
+          if (item.address) summaryParts.push('📍 ' + item.address);
+          showToast(`✅ <b>Datos detectados:</b><br>${summaryParts.join(' | ')}`, 'success', 4500);
         } else {
           item.status = 'idle';
-          item.statusText = 'Sin email';
-          showToast(`⚠️ No se detectó email en #${itemsQueue.indexOf(item) + 1}. Toca <b>"✂️ Recortar / Zoom"</b> para encuadrar la zona del correo.`, 'warning', 6500);
+          item.statusText = 'Sin datos';
+          showToast(`⚠️ No se detectaron contactos en #${itemsQueue.indexOf(item) + 1}. Toca <b>"✂️ Recortar / Zoom"</b> para encuadrar la zona del correo o WhatsApp.`, 'warning', 6500);
         }
       } catch (err) {
         console.error('Error OCR item:', err);
@@ -2123,13 +2587,14 @@
         showToast(`❌ Error al escanear: ${err.message}`, 'error', 5000);
       } finally {
         if (progressBar) progressBar.style.display = 'none';
+        persistItemToDB(item);
         renderQueue();
       }
     }
 
     // Escaneo masivo secuencial (uno a uno para no colapsar la memoria móvil)
     btnBatchScan.addEventListener('click', async () => {
-      const unscanned = itemsQueue.filter(i => !i.email && i.status !== 'sent');
+      const unscanned = itemsQueue.filter(i => !i.email && !i.phone && i.status !== 'sent');
       if (unscanned.length === 0) {
         showToast('ℹ️ No hay imágenes pendientes de escanear.', 'info', 3000);
         return;
@@ -2209,6 +2674,7 @@
         item.statusText = 'Error de red';
         showToast(`❌ Error de conexión: ${err.message}`, 'error', 6000);
       } finally {
+        persistItemToDB(item);
         renderQueue();
       }
     }
@@ -2227,7 +2693,7 @@
       );
 
       if (readyItems.length === 0) {
-        showToast('⚠️ No hay imágenes listas para enviar. Asegúrate de que tengan correo válido y categoría asignada.', 'warning', 5000);
+        showToast('⚠️ No hay imágenes listas para enviar por correo. Revisa que tengan email válido.', 'warning', 5000);
         return;
       }
 
@@ -2271,6 +2737,7 @@
           item.statusText = 'Error red';
           errorCount++;
         }
+        persistItemToDB(item);
         renderQueue();
       }
 
@@ -2299,10 +2766,18 @@
       }
     }
 
-    // Inicialización al cargar la página
-    window.addEventListener('DOMContentLoaded', () => {
+    // Inicialización al cargar la página con recuperación desde IndexedDB
+    window.addEventListener('DOMContentLoaded', async () => {
       checkBackendConfig();
-      renderQueue();
+      // Restauración de cola persistente
+      const restored = await loadQueueFromDB();
+      if (restored && restored.length > 0) {
+        itemsQueue = restored;
+        renderQueue();
+        showToast(`📦 Se recuperaron <b>${restored.length}</b> ${restored.length === 1 ? 'currículum' : 'currículums'} guardados.`, 'info', 3000);
+      } else {
+        renderQueue();
+      }
       cargarCategoriasDesdeBackend();
     });
   </script>

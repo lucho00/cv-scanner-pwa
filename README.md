@@ -7,6 +7,17 @@ Aplicación Web Progresiva (**PWA**) mobile-first para capturar o subir imágene
 ## 🚀 Características Principales
 
 - **Instalación como App Nativa (PWA)**: Compatible con Chrome en Android y Safari en iOS. Se instala con su propio icono, pantalla completa e inicio independiente (sin barra de navegador).
+- **Persistencia Local Segura (IndexedDB)**:
+  - Si sales de la app, cierras la pestaña por error o reinicias el teléfono, **no se pierde nada**.
+  - Las fotos capturadas en alta resolución, los recortes efectuados, los correos, teléfonos y direcciones detectadas se restauran instantáneamente al reabrir la app.
+  - Almacenamiento local de gran capacidad sin los límites restrictivos de localStorage.
+- **Detección de WhatsApp y Enlace Directo**:
+  - Extrae números de teléfono fijos y móviles de Argentina e internacionales (`+54 9...`, `11...`, `15...`).
+  - **Botón directo "Abrir WhatsApp"**: genera el link oficial `wa.me/549...` con saludo y presentación automática redactada a nombre de Luciano Bibbo. El celular te permite elegir si abrirlo con la app de WhatsApp o WhatsApp Web.
+  - **Botón "Copiar Teléfono"**: copia el número al portapapeles con un solo toque.
+- **Detección de Dirección Postal y Google Maps**:
+  - Reconoce direcciones físicas (Calles, Avenidas, Pasajes y numeración catastral).
+  - Si un aviso no tiene correo electrónico ni WhatsApp, o para ubicar físicamente el comercio / entrevista, provee un botón directo **"🗺️ Ver en Google Maps"** para navegar de inmediato.
 - **Subida Dual (Cámara o Galería)**:
   - Botón directo para tomar foto con la cámara trasera.
   - Botón para explorar la galería de fotos o archivos locales (JPG, PNG, WEBP).
