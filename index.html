@@ -2273,11 +2273,11 @@
     });
 
     // =========================================================================
-    // 6. OCR PRECISO CON PREPROCESAMIENTO ADAPTATIVO EN CANVAS Y TESSERACT.JS
+    // 6. MOTOR OCR DE ALTO RENDIMIENTO CON ENFOQUE DINÁMICO, DUAL-PASS Y TESSERACT
     // =========================================================================
 
     /**
-     * Limpieza y normalización heurística de errores comunes de OCR en correos
+     * Limpieza profunda y normalización heurística de texto extraído por OCR
      */
     function cleanOcrText(raw) {
       if (!raw) return '';
@@ -2287,22 +2287,35 @@
       text = text.replace(/@\s*\n+\s*/g, '@');
       text = text.replace(/([a-zA-Z0-9.-]+)\.\s*\n+\s*([a-zA-Z]{2,})/g, '$1.$2');
 
-      // 2. Normalizar símbolos comúnmente confundidos con '@' por OCR en fuentes estilizadas
-      text = text.replace(/([a-zA-Z0-9._%+-]+)\s*[@©®]\s*([a-zA-Z0-9.-]+)\s*[\.,]\s*([a-zA-Z]{2,})/g, '$1@$2.$3');
-      text = text.replace(/([a-zA-Z0-9._%+-]+)\s*\[at\]\s*([a-zA-Z0-9.-]+)\s*[\.,]\s*([a-zA-Z]{2,})/gi, '$1@$2.$3');
-      text = text.replace(/([a-zA-Z0-9._%+-]+)\s*\(at\)\s*([a-zA-Z0-9.-]+)\s*[\.,]\s*([a-zA-Z]{2,})/gi, '$1@$2.$3');
+      // 2. Normalizar variantes y símbolos confundidos con '@' por OCR
+      text = text.replace(/[\u00A9\u00AE]/g, '@'); // ©, ®
+      text = text.replace(/\s*©\s*/g, '@');
+      text = text.replace(/\s*\[at\]\s*/gi, '@');
+      text = text.replace(/\s*\(at\)\s*/gi, '@');
+      text = text.replace(/\s*\[arroba\]\s*/gi, '@');
+      text = text.replace(/\s*\(arroba\)\s*/gi, '@');
+      text = text.replace(/\s+arroba\s+/gi, '@');
 
-      // 3. Normalizar espacios accidentales entre usuario, arroba y dominio (ej: 'juan . perez @ gmail . com')
-      text = text.replace(/([a-zA-Z0-9._%+-]+)\s+@\s+([a-zA-Z0-9.-]+)\s*\.\s*([a-zA-Z]{2,})/g, '$1@$2.$3');
-      text = text.replace(/([a-zA-Z0-9._%+-]+)@\s+([a-zA-Z0-9.-]+)/g, '$1@$2');
+      // 3. Normalizar espacios accidentales entre usuario, arroba y dominio
+      text = text.replace(/([a-zA-Z0-9._%+-]+)\s*@\s*([a-zA-Z0-9.-]+)/g, '$1@$2');
       text = text.replace(/([a-zA-Z0-9._%+-]+)\s+@([a-zA-Z0-9.-]+)/g, '$1@$2');
+      text = text.replace(/([a-zA-Z0-9_%+-]+)\s*\.\s*([a-zA-Z0-9.-]+)/g, '$1.$2');
 
-      // 4. Corregir errores típicos de Tesseract en TLDs (.con -> .com, ,com -> .com, etc.)
-      text = text.replace(/@([a-zA-Z0-9.-]+)\.con\b/gi, '@$1.com');
-      text = text.replace(/@([a-zA-Z0-9.-]+),com\b/gi, '@$1.com');
-      text = text.replace(/@([a-zA-Z0-9.-]+),ar\b/gi, '@$1.ar');
-      text = text.replace(/@([a-zA-Z0-9.-]+)\.coom\b/gi, '@$1.com');
-      text = text.replace(/@([a-zA-Z0-9.-]+)\.gmai\b/gi, '@$1.gmail.com');
+      // 4. Corregir dominios populares mutilados por espaciado o caracteres visuales similares
+      text = text.replace(/@\s*g\s*m\s*a\s*i\s*l\s*[\.,]?\s*c\s*o\s*m/gi, '@gmail.com');
+      text = text.replace(/@\s*h\s*o\s*t\s*m\s*a\s*i\s*l\s*[\.,]?\s*c\s*o\s*m/gi, '@hotmail.com');
+      text = text.replace(/@\s*o\s*u\s*t\s*l\s*o\s*o\s*k\s*[\.,]?\s*c\s*o\s*m/gi, '@outlook.com');
+      text = text.replace(/@\s*y\s*a\s*h\s*o\s*o\s*[\.,]?\s*c\s*o\s*m/gi, '@yahoo.com');
+
+      // 5. Corregir errores típicos de Tesseract en TLDs (.con -> .com, ,com -> .com, etc.)
+      text = text.replace(/@([a-zA-Z0-9.-]+)[,\.](con|cpm|xom|vom|comm|coom)\b/gi, '@$1.com');
+      text = text.replace(/@([a-zA-Z0-9.-]+)[,\.](ar|com\.ar)\b/gi, '@$1.$2');
+      text = text.replace(/@gmai1\.com/gi, '@gmail.com');
+      text = text.replace(/@gm[a|i]l\.com/gi, '@gmail.com');
+      text = text.replace(/@hotmai1\.com/gi, '@hotmail.com');
+      text = text.replace(/@out1ook\.com/gi, '@outlook.com');
+      text = text.replace(/@gmailcom\b/gi, '@gmail.com');
+      text = text.replace(/@hotmailcom\b/gi, '@hotmail.com');
 
       return text;
     }
@@ -2317,15 +2330,15 @@
       // Expresión regular estándar y extendida
       const regex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63}/gi;
       const matches = (text.match(regex) || []).map(e => 
-        e.replace(/^[<(\s:]+/, '').replace(/[.,;:)>\]\s]+$/, '').trim().toLowerCase()
+        e.replace(/^[<(\s:]+/, '').replace(/[.,;:)>\s]+$/, '').trim().toLowerCase()
       );
 
       // Búsqueda guiada por bloques de contacto
-      const keywordRegex = /(?:correo|email|e-mail|mail|contacto)\s*[:\-\s]\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63})/gi;
+      const keywordRegex = /(?:correo|email|e-mail|mail|contacto|enviar cv|postularse a|cv al)\s*[:\-\s]\s*([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,63})/gi;
       let kwMatch;
       while ((kwMatch = keywordRegex.exec(text)) !== null) {
         if (kwMatch[1]) {
-          matches.unshift(kwMatch[1].replace(/^[<(\s:]+/, '').replace(/[.,;:)>\]\s]+$/, '').trim().toLowerCase());
+          matches.unshift(kwMatch[1].replace(/^[<(\s:]+/, '').replace(/[.,;:)>\s]+$/, '').trim().toLowerCase());
         }
       }
 
@@ -2352,11 +2365,16 @@
      */
     function extractPhones(rawText) {
       if (!rawText) return [];
-      const text = rawText.replace(/\r\n/g, '\n');
+      let text = rawText.replace(/\r\n/g, '\n');
+
+      // Normalizar letra 'O' o 'o' por cero '0' si está rodeada de dígitos (error clásico de OCR)
+      text = text.replace(/(\b|[^\w])[Oo](\d{2,})/g, '$10$2');
+      text = text.replace(/(\d{2,})[Oo](\b|[^\w])/g, '$10$2');
+
       const candidates = [];
 
       // 1. Precedido por palabras clave de contacto o WhatsApp
-      const kwRegex = /(?:whatsapp|wsp|wapp|cel(?:ular)?|tel(?:[eé]fono)?|m[oó]vil|contacto)\s*[:\-\s]\s*([+0-9\s().-]{7,25})/gi;
+      const kwRegex = /(?:whatsapp|wsp|wapp|cel(?:ular)?|tel(?:[eé]fono)?|m[oó]vil|contacto|escribinos|comunicarse|llamar|enviar cv al)\s*[:\-\s]\s*([+0-9\s().-]{7,25})/gi;
       let match;
       while ((match = kwRegex.exec(text)) !== null) {
         const rawMatch = match[1].trim();
@@ -2378,7 +2396,7 @@
       }
 
       const cleaned = candidates.map(c => {
-        return c.replace(/^[<(\s:]+/, '').replace(/[.,;:)>\]\s]+$/, '').trim();
+        return c.replace(/^[<(\s:]+/, '').replace(/[.,;:)>\s]+$/, '').trim();
       });
 
       return Array.from(new Set(cleaned));
@@ -2391,32 +2409,71 @@
       if (!rawText) return '';
       const text = rawText.replace(/\r\n/g, '\n');
 
-      // 1. Precedido por palabra clave de dirección
-      const kwAddress = /(?:direcci[oó]n|domicilio|ubicaci[oó]n|lugar de entrevista|lugar|presentarse en|entrevistas? en)\s*[:\-\s]\s*([^\n\r,.;]{4,60}\b\d{1,5}(?:\s*(?:piso|depto|dpto|oficina|of\.?|timbre)\s*[A-Za-z0-9]+)?)/i;
+      // 1. Precedido por palabra clave de dirección o lugar
+      const kwAddress = /(?:direcci[oó]n|domicilio|ubicaci[oó]n|lugar de entrevista|lugar|presentarse en|presentarse con cv en|entrevistas? en|sucursal|sede|local|zona)\s*[:\-\s]\s*([^\n\r,;]{2,50}?\b\d{1,5}\b(?:\s*(?:[0-9]+(?:er|do|ro|to|vo|no|mo|[°º]|\.?)?\s*(?:piso|depto|dpto|oficina|of\.?|local|timbre|PB|[A-Za-z]\b)|(?:piso|depto|dpto|oficina|of\.?|local|timbre|PB)\s*[A-Za-z0-9]+)[^\n\r,;]*)?)/i;
       const kwMatch = text.match(kwAddress);
       if (kwMatch && kwMatch[1]) {
         let addr = kwMatch[1].trim().replace(/^de entrevista:?\s*/i, '');
-        return addr.replace(/^[<(\s:]+/, '').replace(/[.,;:)>\]\s]+$/, '').trim();
+        return addr.replace(/^[<(\s:]+/, '').replace(/[.,;:)>\s]+$/, '').trim();
       }
 
       // 2. Patrón de calle/avenida + numeración (ej: Av. Santa Fe 1234, Calle San Martín 450)
-      const streetPattern = /\b(?:Av(?:enida|\.)?|Calle|Pje\.?|Pasaje|Bv\.?|Bulevar|Ruta)\s+[A-Za-zÀ-ÿ0-9\s.]{3,35}\s+\d{1,5}(?:\s*(?:piso|depto|dpto|oficina|of\.?|timbre)\s*[A-Za-z0-9]+)?\b/i;
+      const streetPattern = /\b(?:Av(?:enida|\.)?|Calle|Pje\.?|Pasaje|Bv\.?|Bulevar|Ruta|Diagonal|Autopista)\s+[A-Za-zÀ-ÿ0-9\s.]{3,35}\s+\d{1,5}(?:\s*(?:[0-9]+(?:er|do|ro|to|vo|no|mo|[°º]|\.?)?\s*(?:piso|depto|dpto|oficina|of\.?|local|timbre|PB|[A-Za-z]\b)|(?:piso|depto|dpto|oficina|of\.?|local|timbre|PB)\s*[A-Za-z0-9]+)[^\n\r,;]*)?/i;
       const sMatch = text.match(streetPattern);
       if (sMatch) {
-        return sMatch[0].trim().replace(/^[<(\s:]+/, '').replace(/[.,;:)>\]\s]+$/, '').trim();
+        return sMatch[0].trim().replace(/^[<(\s:]+/, '').replace(/[.,;:)>\s]+$/, '').trim();
       }
 
       return '';
     }
 
     /**
-     * Preprocesamiento inteligente en Canvas:
-     * - Ajuste óptimo de escala (upscaling para recortes pequeños, downscaling seguro para fotos pesadas).
-     * - Normalización de iluminación (Auto-level & histogram stretch).
-     * - Aumento dinámico de contraste (fondo de papel limpio y texto oscuro nítido).
-     * - Auto-inversión para encabezados con fondo oscuro y letras claras.
+     * Aplica filtro de convolución de enfoque (Sharpening 3x3) sobre el Canvas
+     * Elimina desenfoque de cámara móvil y destaca los bordes de letras finas
      */
-    function prepareCanvasForOcr(sourceFileOrBlob, isCropped = false) {
+    function applySharpeningFilter(ctx, width, height) {
+      try {
+        const imgData = ctx.getImageData(0, 0, width, height);
+        const src = imgData.data;
+        const output = ctx.createImageData(width, height);
+        const dst = output.data;
+
+        // Matriz de enfoque 3x3:
+        //  0, -1,  0
+        // -1,  5, -1
+        //  0, -1,  0
+        for (let y = 1; y < height - 1; y++) {
+          for (let x = 1; x < width - 1; x++) {
+            const idx = (y * width + x) * 4;
+            const up = ((y - 1) * width + x) * 4;
+            const down = ((y + 1) * width + x) * 4;
+            const left = (y * width + (x - 1)) * 4;
+            const right = (y * width + (x + 1)) * 4;
+
+            for (let c = 0; c < 3; c++) {
+              let val = 5 * src[idx + c] - src[up + c] - src[down + c] - src[left + c] - src[right + c];
+              dst[idx + c] = val < 0 ? 0 : (val > 255 ? 255 : val);
+            }
+            dst[idx + 3] = src[idx + 3];
+          }
+        }
+        ctx.putImageData(output, 0, 0);
+      } catch (e) {
+        console.warn('Filtro de enfoque no aplicado:', e);
+      }
+    }
+
+    /**
+     * Preprocesamiento inteligente en Canvas:
+     * - Upscaling adaptativo para recortes pequeños (permite que Tesseract lea letras de 30-40px de altura).
+     * - Downscaling controlado para fotos muy pesadas (hasta 2200px para preservar nitidez).
+     * - Normalización y extensión de histograma (Auto-leveling).
+     * - Enfoque digital por convolución.
+     * - Detección y auto-inversión de fondos oscuros.
+     */
+    function prepareCanvasForOcr(sourceFileOrBlob, isCropped = false, options = {}) {
+      const { forceInvert = false, rawGrayscale = false } = options;
+
       return new Promise((resolve) => {
         const img = new Image();
         const tempUrl = URL.createObjectURL(sourceFileOrBlob);
@@ -2426,14 +2483,15 @@
           let width = img.naturalWidth || img.width;
           let height = img.naturalHeight || img.height;
 
-          if (isCropped && width < 900 && height < 900) {
-            const factor = Math.min(2.5, 900 / Math.max(width, height));
-            if (factor > 1.2) {
+          // Si es recorte, ampliamos para asegurar densidad de píxeles ideal para Tesseract
+          if (isCropped && (width < 1100 || height < 1100)) {
+            const factor = Math.min(3.0, 1100 / Math.max(width, height));
+            if (factor > 1.1) {
               width = Math.round(width * factor);
               height = Math.round(height * factor);
             }
           } else {
-            const maxDimension = 1800;
+            const maxDimension = 2200;
             if (width > maxDimension || height > maxDimension) {
               if (width > height) {
                 height = Math.round((height * maxDimension) / width);
@@ -2450,10 +2508,13 @@
           canvas.height = height;
           const ctx = canvas.getContext('2d', { willReadFrequently: true });
 
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, width, height);
           ctx.drawImage(img, 0, 0, width, height);
 
+          // Si no es rawGrayscale, aplicar mejoras de contraste y enfoque
           try {
             const imgData = ctx.getImageData(0, 0, width, height);
             const d = imgData.data;
@@ -2473,7 +2534,7 @@
             }
 
             const avgLum = sumLum / totalPixels;
-            const isDarkBackground = avgLum < 110;
+            const isDarkBackground = avgLum < 115 || forceInvert;
             const range = maxLum - minLum || 1;
             const scale = 255 / range;
 
@@ -2484,10 +2545,13 @@
                 val = 255 - val;
               }
 
-              if (val < 130) {
-                val = Math.max(0, val * 0.72);
-              } else {
-                val = Math.min(255, val * 1.12 + 12);
+              if (!rawGrayscale) {
+                // Curva de contraste sigmoide para destacar texto oscuro y limpiar papel
+                if (val < 135) {
+                  val = Math.max(0, val * 0.68);
+                } else {
+                  val = Math.min(255, val * 1.15 + 14);
+                }
               }
 
               d[i] = val;
@@ -2496,6 +2560,11 @@
             }
 
             ctx.putImageData(imgData, 0, 0);
+
+            // Aplicar enfoque si no es imagen cruda
+            if (!rawGrayscale) {
+              applySharpeningFilter(ctx, width, height);
+            }
           } catch (filterErr) {
             console.warn('Filtro de canvas omitido:', filterErr);
           }
@@ -2512,6 +2581,43 @@
       });
     }
 
+    /**
+     * Worker Tesseract compartido (reutiliza el motor en memoria para escaneos ultra rápidos)
+     */
+    let sharedOcrWorker = null;
+    let workerInitPromise = null;
+
+    async function getSharedOcrWorker(progressCallback) {
+      if (sharedOcrWorker) return sharedOcrWorker;
+      if (workerInitPromise) return workerInitPromise;
+
+      workerInitPromise = (async () => {
+        try {
+          const worker = await Tesseract.createWorker('spa+eng', 1, {
+            logger: (m) => {
+              if (progressCallback && m) {
+                progressCallback(m);
+              }
+            }
+          });
+          await worker.setParameters({
+            preserve_interword_spaces: '1'
+          });
+          sharedOcrWorker = worker;
+          return worker;
+        } catch (initErr) {
+          console.warn('No se pudo inicializar worker dedicado, usando recognize():', initErr);
+          workerInitPromise = null;
+          return null;
+        }
+      })();
+
+      return workerInitPromise;
+    }
+
+    /**
+     * Ejecuta escaneo OCR con sistema Dual-Pass (intento mejorado + fallback en caso de fondos invertidos o difíciles)
+     */
     async function escanearItemIndividual(id) {
       const item = itemsQueue.find(i => i.id === id);
       if (!item) return;
@@ -2529,28 +2635,85 @@
       const progressFill = document.getElementById(`fill_${id}`);
       if (progressBar) progressBar.style.display = 'block';
 
+      const updateProgress = (pct) => {
+        item.progress = pct;
+        if (progressFill) progressFill.style.width = `${pct}%`;
+      };
+
       try {
         const targetSource = item.processedBlob || item.file;
-        const preprocessedCanvas = await prepareCanvasForOcr(targetSource, item.isCropped);
 
-        const result = await Tesseract.recognize(
-          preprocessedCanvas,
-          'spa+eng',
-          {
+        // PASO 1: Preprocesamiento de alto contraste y enfoque por convolución
+        item.statusText = 'Optimizando foto...';
+        renderQueue();
+        updateProgress(15);
+
+        const canvasPaso1 = await prepareCanvasForOcr(targetSource, item.isCropped, { forceInvert: false });
+        updateProgress(30);
+
+        item.statusText = 'Leyendo texto...';
+        renderQueue();
+
+        let ocrText = '';
+        const worker = await getSharedOcrWorker((m) => {
+          if (m && m.progress) {
+            const pct = Math.round(30 + m.progress * 60);
+            updateProgress(pct);
+          }
+        });
+
+        if (worker) {
+          const result = await worker.recognize(canvasPaso1);
+          ocrText = result?.data?.text || '';
+        } else {
+          // Fallback a recognize directo si el worker falló
+          const result = await Tesseract.recognize(canvasPaso1, 'spa+eng', {
             logger: (m) => {
               if (m && m.progress) {
-                const pct = Math.round(m.progress * 100);
-                item.progress = pct;
-                if (progressFill) progressFill.style.width = `${pct}%`;
+                const pct = Math.round(30 + m.progress * 60);
+                updateProgress(pct);
               }
             }
-          }
-        );
+          });
+          ocrText = result?.data?.text || '';
+        }
 
-        const text = result?.data?.text || '';
-        const emails = extractEmails(text);
-        const phones = extractPhones(text);
-        const address = extractAddress(text);
+        let emails = extractEmails(ocrText);
+        let phones = extractPhones(ocrText);
+        let address = extractAddress(ocrText);
+
+        // PASO 2 (FALLBACK DUAL-PASS): Si el Paso 1 no detectó ningún dato,
+        // reintentamos con inversión de color / escala de grises alternativa
+        if (emails.length === 0 && phones.length === 0 && !address) {
+          console.info('Paso 1 no halló contactos. Iniciando Paso 2 Dual-Pass...');
+          item.statusText = 'Paso 2 (Invertido)...';
+          renderQueue();
+          updateProgress(50);
+
+          const canvasPaso2 = await prepareCanvasForOcr(targetSource, item.isCropped, { forceInvert: true });
+          updateProgress(70);
+
+          let fallbackText = '';
+          if (worker) {
+            const res2 = await worker.recognize(canvasPaso2);
+            fallbackText = res2?.data?.text || '';
+          } else {
+            const res2 = await Tesseract.recognize(canvasPaso2, 'spa+eng');
+            fallbackText = res2?.data?.text || '';
+          }
+
+          if (fallbackText) {
+            const emails2 = extractEmails(fallbackText);
+            const phones2 = extractPhones(fallbackText);
+            const address2 = extractAddress(fallbackText);
+
+            if (emails2.length > 0) emails = emails2;
+            if (phones2.length > 0) phones = phones2;
+            if (address2) address = address2;
+          }
+        }
+
+        updateProgress(100);
 
         let detectedCount = 0;
 
@@ -2599,7 +2762,7 @@
       }
     }
 
-    // Escaneo masivo secuencial (uno a uno para no colapsar la memoria móvil)
+    // Escaneo masivo secuencial (uno a uno con worker compartido)
     btnBatchScan.addEventListener('click', async () => {
       const unscanned = itemsQueue.filter(i => !i.email && !i.phone && i.status !== 'sent');
       if (unscanned.length === 0) {
@@ -2609,7 +2772,7 @@
 
       btnBatchScan.disabled = true;
       btnBatchSend.disabled = true;
-      showToast(`🔍 Iniciando escaneo secuencial de ${unscanned.length} imágenes...`, 'info', 3000);
+      showToast(`🔍 Escaneando ${unscanned.length} imágenes secuencialmente...`, 'info', 3000);
 
       for (let i = 0; i < unscanned.length; i++) {
         const item = unscanned[i];
@@ -2618,7 +2781,7 @@
 
       btnBatchScan.disabled = false;
       btnBatchSend.disabled = false;
-      showToast('🎉 Escaneo secuencial completado.', 'success', 3500);
+      showToast('🎉 Escaneo completado.', 'success', 3500);
     });
 
     // =========================================================================

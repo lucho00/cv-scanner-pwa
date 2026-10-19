@@ -25,12 +25,16 @@ Aplicación Web Progresiva (**PWA**) mobile-first para capturar o subir imágene
   - Permite hacer zoom táctil (pinch-to-zoom), rotar fotos tomadas de lado (-90° / +90°) y encuadrar con precisión quirúrgica el bloque de datos de contacto o email.
   - Botón directo "⚡ Recortar y Leer" para escanear instantáneamente la selección.
   - Opción para restablecer la foto original en cualquier momento.
-- **OCR de Alta Precisión y Alcance**:
-  - Utiliza **Tesseract.js v5** con preprocesamiento adaptativo en **HTML5 Canvas**.
-  - **Filtro de Alto Contraste y Normalización**: ecualiza la iluminación, elimina sombras de celulares y convierte fondos grises a blanco puro con letras nítidas.
-  - **Auto-inversión inteligente**: detecta si el encabezado tiene fondo oscuro con letras claras y lo invierte automáticamente para máxima lectura.
-  - **Normalizador heurístico de correos**: corrige errores típicos de OCR (espacios accidentales alrededor de `@` o `.`, confusiones con `©`/`®`/`[at]`, corrección de extensiones `.con` -> `.com`).
-  - **Sugerencias múltiples**: si el CV contiene más de un correo, presenta botones interactivos (chips) para alternar el destinatario con un solo toque.
+- **OCR de Alta Precisión y Alcance (Dual-Pass Engine)**:
+  - Utiliza **Tesseract.js v5** con worker en memoria compartido (reduce el tiempo de escaneo a solo ~1-2 segundos).
+  - **Filtro de Enfoque por Convolución (Sharpening 3x3)**: elimina el desenfoque típico de cámaras móviles y destaca los bordes de letras finas.
+  - **Normalización de Iluminación y Alto Contraste**: ecualiza sombras de celulares y convierte fondos grises a blanco puro con letras oscuras nítidas.
+  - **Estrategia Dual-Pass**: si el primer análisis no detecta contactos, automáticamente realiza una segunda pasada con inversión de color (ideal para avisos en modo oscuro o volantes con fondo de color).
+  - **Normalizador Heurístico Avanzado**:
+    - Correos: repara variantes de `@` (`[at]`, `(at)`, `[arroba]`, `©`, `®`), espacios accidentales y extensiones (.con, .cpm -> .com).
+    - Teléfonos / WhatsApp: normaliza confusión de letra `O` por cero `0` y reconoce prefijos argentinos (+54 9, 15, 011).
+    - Direcciones: reconoce calles, avenidas, numeraciones, pisos, deptos y locales.
+  - **Sugerencias Múltiples**: si el CV contiene más de un correo o teléfono, presenta botones interactivos (chips) para alternar el destinatario con un solo toque.
 - **Backend Serverless con Google Apps Script**:
   - Consulta dinámica de categorías configuradas en Google Drive (`doGet`).
   - Despacho de correos vía GmailApp con adjunto automático (`doPost`).
