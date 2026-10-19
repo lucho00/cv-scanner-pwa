@@ -158,7 +158,7 @@ function enviarCVCategoria(emailDestino, categoriaSeleccionada) {
   // =========================================================================
   // VARIABLES CONFIGURABLES DEL CORREO (Personaliza tus datos aquí)
   // =========================================================================
-  const NOMBRE_REMITENTE = "[Tu Nombre]";
+  const NOMBRE_REMITENTE = "Luciano Bibbo";
   const ASUNTO_CORREO = `Presentación para vacante de ${categoriaSeleccionada} - ${NOMBRE_REMITENTE}`;
   const CUERPO_CORREO = 
 `Estimado/a responsable de selección,
