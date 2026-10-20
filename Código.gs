@@ -308,25 +308,8 @@ function normalizarTexto(str) {
 }
 
 function obtenerCategorias() {
-  const categorias = new Set();
-
-  if (CARPETA_PRINCIPAL_ID && CARPETA_PRINCIPAL_ID !== 'ID_CARPETA_PRINCIPAL_AQUI') {
-    try {
-      const carpetaPrincipal = DriveApp.getFolderById(CARPETA_PRINCIPAL_ID);
-      const subcarpetas = carpetaPrincipal.getFolders();
-      while (subcarpetas.hasNext()) {
-        categorias.add(subcarpetas.next().getName());
-      }
-    } catch (err) {
-      Logger.log('Aviso al leer CARPETA_PRINCIPAL_ID: ' + err.toString());
-    }
-  }
-
-  if (categorias.size === 0) {
-    Object.keys(CARPETAS_DRIVE).forEach(cat => categorias.add(cat));
-  }
-
-  return Array.from(categorias);
+  // Retorna estrictamente tus 8 categorías reales de trabajo
+  return Object.keys(CARPETAS_DRIVE).sort();
 }
 
 function buscarCarpetaCategoria(categoriaSeleccionada) {
