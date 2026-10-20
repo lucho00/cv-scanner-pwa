@@ -1671,7 +1671,14 @@
     const btnCloseZoom = document.getElementById('btnCloseZoom');
 
     function getBackendUrl() {
-      return localStorage.getItem('cv_scanner_backend_url') || '';
+      const stored = (localStorage.getItem('cv_scanner_backend_url') || '').trim();
+      if (stored && stored.startsWith('https://script.google.com/')) {
+        return stored;
+      }
+      if (typeof APPS_SCRIPT_AUTO_URL !== 'undefined' && APPS_SCRIPT_AUTO_URL && APPS_SCRIPT_AUTO_URL.startsWith('https://script.google.com/')) {
+        return APPS_SCRIPT_AUTO_URL.trim();
+      }
+      return stored || '';
     }
 
     function checkBackendConfig() {
