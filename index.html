@@ -1272,14 +1272,6 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
           Enviar listos
         </button>
-        <button type="button" class="btn-batch btn-batch-reset" id="btnBatchReset" title="Reiniciar los estados de enviados para volver a enviarlos hoy">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-          🔄 Reenviar todo hoy
-        </button>
-        <button type="button" class="btn-batch btn-batch-excel" id="btnSyncSheet" title="Sincronizar con tu Google Sheet: guarda los nuevos extraídos y carga los que ya tenías">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          📊 Sincronizar Sheet
-        </button>
       </div>
 
       <!-- Filtros por estado -->
@@ -1617,8 +1609,6 @@
     const btnClearQueue = document.getElementById('btnClearQueue');
     const btnBatchScan = document.getElementById('btnBatchScan');
     const btnBatchSend = document.getElementById('btnBatchSend');
-    const btnBatchReset = document.getElementById('btnBatchReset');
-    const btnSyncSheet = document.getElementById('btnSyncSheet');
     const filterTabsRow = document.getElementById('filterTabsRow');
     const countAll = document.getElementById('countAll');
     const countPending = document.getElementById('countPending');
@@ -1977,146 +1967,6 @@
       addFilesToQueue(e.target.files);
       galleryInput.value = ''; // Permite seleccionar más archivos luego
     });
-
-    // Reinicio diario de estados para reenvío masivo (App + Google Sheets)
-    if (btnBatchReset) {
-      btnBatchReset.addEventListener('click', async () => {
-        const sentItems = itemsQueue.filter(i => i.status === 'sent' || i.status === 'error');
-        if (itemsQueue.length === 0) {
-          showToast('ℹ️ No hay currículums en la lista.', 'info', 3000);
-          return;
-        }
-
-        if (!confirm('¿Deseas vaciar la columna "Estado" en tu Google Sheet y reiniciar la app para volver a enviar a TODOS hoy?')) {
-          return;
-        }
-
-        // 1. Reiniciar en la app local y en IndexedDB
-        itemsQueue.forEach(item => {
-          if (item.status === 'sent' || item.status === 'error') {
-            item.status = item.email ? 'scanned' : 'idle';
-            item.statusText = item.email ? 'Listo para reenvío' : 'Sin escanear';
-            persistItemToDB(item);
-          }
-        });
-        renderQueue();
-
-        // 2. Reiniciar la columna D en Google Sheets
-        const backendUrl = getBackendUrl();
-        if (backendUrl) {
-          showToast('🔄 Vaciando columna "Estado" en Google Sheets...', 'info', 2000);
-          try {
-            await realizarEnvioBackend(backendUrl, { action: 'resetSheetStatus' });
-            showToast('✅ <b>¡Google Sheet y App reiniciados!</b><br>Columna "Estado" vaciada. Toca "Enviar listos" para mandar a todos hoy.', 'success', 5000);
-          } catch (e) {
-            console.warn('Aviso al vaciar Sheet:', e);
-            showToast('ℹ️ App reiniciada localmente. (Revisa conexión con Sheet).', 'info', 3500);
-          }
-        } else {
-          showToast('🔄 Estados reiniciados en la app.', 'success', 3500);
-        }
-      });
-    }
-
-    // Sincronización completa bidireccional con Google Sheets
-    if (btnSyncSheet) {
-      btnSyncSheet.addEventListener('click', async () => {
-        const backendUrl = getBackendUrl();
-        if (!backendUrl) {
-          showToast('⚠️ Configura primero la URL de tu Google Apps Script en el engranaje ⚙️.', 'warning', 4000);
-          settingsModal.style.display = 'flex';
-          return;
-        }
-
-        btnSyncSheet.disabled = true;
-        btnSyncSheet.innerHTML = '<span class="spinner"></span> Sincronizando...';
-        showToast('📊 Conectando con Google Sheets...', 'info', 2500);
-
-        try {
-          // Preparamos items con email detectado para agregarlos a la planilla si no están
-          const itemsToSend = itemsQueue
-            .filter(i => i.email && regexEmail.test(i.email))
-            .map(i => ({
-              email: i.email,
-              category: i.category,
-              status: i.status
-            }));
-
-          const data = await realizarEnvioBackend(backendUrl, {
-            action: 'syncSheet',
-            items: itemsToSend
-          });
-
-          if (data && data.success && Array.isArray(data.contactos)) {
-            // Incorporamos contactos que estén en el Sheet y que no tengamos en la app
-            const existingEmails = new Set(itemsQueue.map(i => (i.email || '').toLowerCase().trim()));
-            let importados = 0;
-
-            data.contactos.forEach(c => {
-              const sheetEmail = (c.email || '').toLowerCase().trim();
-              if (sheetEmail && regexEmail.test(sheetEmail)) {
-                if (!existingEmails.has(sheetEmail)) {
-                  // Crear un item en la cola para este contacto de la planilla
-                  const newItem = {
-                    id: 'sheet_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6),
-                    file: null,
-                    originalFile: null,
-                    processedBlob: null,
-                    name: 'Planilla Sheets',
-                    sizeMb: '0.00',
-                    previewUrl: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 24 24" fill="none" stroke="%2310b981" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>',
-                    originalPreviewUrl: '',
-                    isCropped: false,
-                    category: c.category || availableCategories[0] || 'Administrativo',
-                    email: c.email,
-                    allDetectedEmails: [c.email],
-                    phone: '',
-                    allDetectedPhones: [],
-                    address: '',
-                    status: c.status === 'Enviado' ? 'sent' : 'scanned',
-                    statusText: c.status === 'Enviado' ? 'Enviado con éxito' : 'Listo para enviar',
-                    isAutoEmail: true,
-                    isAutoPhone: false,
-                    isAutoAddress: false,
-                    progress: 100,
-                    timestamp: Date.now()
-                  };
-                  itemsQueue.push(newItem);
-                  persistItemToDB(newItem);
-                  existingEmails.add(sheetEmail);
-                  importados++;
-                } else {
-                  // Si ya existía, sincronizamos el estado con la planilla si dice Enviado
-                  const itemLocal = itemsQueue.find(i => (i.email || '').toLowerCase().trim() === sheetEmail);
-                  if (itemLocal) {
-                    if (c.status === 'Enviado' && itemLocal.status !== 'sent') {
-                      itemLocal.status = 'sent';
-                      itemLocal.statusText = 'Enviado con éxito';
-                      persistItemToDB(itemLocal);
-                    } else if (!c.status && itemLocal.status === 'sent') {
-                      itemLocal.status = 'scanned';
-                      itemLocal.statusText = 'Listo para reenvío';
-                      persistItemToDB(itemLocal);
-                    }
-                  }
-                }
-              }
-            });
-
-            renderQueue();
-            showToast(`📊 <b>¡Sincronizado con Google Sheets!</b><br>Agregados a la planilla: <b>${data.agregados || 0}</b>. Traídos a la app: <b>${importados}</b>. Total en planilla: <b>${data.total}</b>.`, 'success', 6000);
-          } else {
-            showToast(`⚠️ Respuesta de Sheet: ${data?.message || 'Sin cambios'}`, 'warning', 4500);
-          }
-        } catch (err) {
-          console.error('Error sincronizando con Sheet:', err);
-          showToast(`❌ Error al sincronizar con Google Sheets: ${err.message}`, 'error', 6000);
-        } finally {
-          btnSyncSheet.disabled = false;
-          btnSyncSheet.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg> 📊 Sincronizar Sheet';
-        }
-      });
-    }
 
     // Pestañas de filtrado (Todos / Pendientes / Enviados)
     if (filterTabsRow) {
