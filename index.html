@@ -2310,6 +2310,9 @@
       // 5. Corregir errores típicos de Tesseract en TLDs (.con -> .com, ,com -> .com, etc.)
       text = text.replace(/@([a-zA-Z0-9.-]+)[,\.](con|cpm|xom|vom|comm|coom)\b/gi, '@$1.com');
       text = text.replace(/@([a-zA-Z0-9.-]+)[,\.](ar|com\.ar)\b/gi, '@$1.$2');
+      text = text.replace(/@([a-zA-Z0-9.-]+)\.com\.a\b/gi, '@$1.com.ar');
+      text = text.replace(/@([a-zA-Z0-9.-]+),com\.ar\b/gi, '@$1.com.ar');
+      text = text.replace(/@([a-zA-Z0-9.-]+)\.con\.ar\b/gi, '@$1.com.ar');
       text = text.replace(/@gmai1\.com/gi, '@gmail.com');
       text = text.replace(/@gm[a|i]l\.com/gi, '@gmail.com');
       text = text.replace(/@hotmai1\.com/gi, '@hotmail.com');
