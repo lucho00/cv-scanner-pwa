@@ -1231,7 +1231,7 @@
       </h1>
       <p class="app-subtitle">Carga dinámica de imágenes con asignación de categoría individual</p>
       <div style="margin-top: 10px;">
-        <button type="button" class="btn-switch-account" onclick="window.top.location.href = 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(window.top.location.href);" title="Alternar entre tus cuentas de Google">
+        <button type="button" class="btn-switch-account" onclick="cambiarCuentaGoogle();" title="Alternar entre tus cuentas de Google">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
             <circle cx="12" cy="7" r="4"></circle>
@@ -1669,6 +1669,17 @@
     const zoomModal = document.getElementById('zoomModal');
     const zoomImg = document.getElementById('zoomImg');
     const btnCloseZoom = document.getElementById('btnCloseZoom');
+
+    function cambiarCuentaGoogle() {
+      const backend = (typeof getBackendUrl === 'function' ? getBackendUrl() : '').trim();
+      // Si la URL es de Google Apps Script, Google permite usar continue
+      if (backend && backend.startsWith('https://script.google.com/')) {
+        window.top.location.href = 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(backend);
+        return;
+      }
+      // Si es GitHub Pages u otro dominio, abrir AccountChooser limpio (evita el Error 400 Bad Request de Google)
+      window.top.location.href = 'https://accounts.google.com/AccountChooser';
+    }
 
     function getBackendUrl() {
       const stored = (localStorage.getItem('cv_scanner_backend_url') || '').trim();
