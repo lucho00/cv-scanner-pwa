@@ -11,6 +11,17 @@
  * 4. Macros para ejecutar y resetear envíos masivos diarios directamente en Sheets.
  */
 
+/**
+ * ⚡ EJECUTA ESTA FUNCIÓN UNA SOLA VEZ EN EL EDITOR PARA AUTORIZAR GOOGLE SHEETS
+ * (En el menú desplegable de arriba selecciona 'autorizarPermisos' y presiona 'Ejecutar')
+ * Es 100% GRATUITO. Solo otorga permiso a tu propio script para leer tu planilla.
+ */
+function autorizarPermisos() {
+  const sheet = getTargetSheet();
+  const filas = leerFilasSheet();
+  Logger.log("✅ Permisos autorizados exitosamente. Total de filas en tu Google Sheet: " + filas.length);
+}
+
 // =========================================================================
 // 1. CONFIGURACIÓN PRINCIPAL DE DRIVE, SHEETS Y REMITENTE
 // =========================================================================
