@@ -514,10 +514,20 @@ function doGet(e) {
     }
 
     // Si se accede directamente a la URL de la Web App en el navegador, renderizar la interfaz HTML de Index.html
-    return HtmlService.createTemplateFromFile('Index')
-      .evaluate()
-      .setTitle('Lector CV')
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    try {
+      return HtmlService.createTemplateFromFile('Index')
+        .evaluate()
+        .setTitle('Lector CV')
+        .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+    } catch (eTemplate) {
+      return ContentService.createTextOutput(JSON.stringify({
+        status: 'online',
+        service: 'CV Scanner API Backend con Sheets',
+        version: '3.1.0',
+        spreadsheetId: SPREADSHEET_ID,
+        timestamp: new Date().toISOString()
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
 
   } catch (err) {
     Logger.log('Error en doGet: ' + err.toString());
