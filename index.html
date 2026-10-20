@@ -348,6 +348,60 @@
       color: #6ee7b7;
     }
 
+    .btn-batch-reset {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px solid rgba(245, 158, 11, 0.4);
+      color: #fbbf24;
+    }
+
+    .btn-batch-reset:hover:not(:disabled) {
+      background: rgba(245, 158, 11, 0.25);
+    }
+
+    .btn-batch-excel {
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.4);
+      color: #93c5fd;
+    }
+
+    .btn-batch-excel:hover:not(:disabled) {
+      background: rgba(59, 130, 246, 0.25);
+    }
+
+    .filter-tabs-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--border-color);
+      overflow-x: auto;
+    }
+
+    .filter-tab {
+      background: transparent;
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+
+    .filter-tab:hover {
+      border-color: var(--text-secondary);
+      color: var(--text-secondary);
+    }
+
+    .filter-tab.active {
+      background: var(--primary-subtle);
+      border-color: var(--primary);
+      color: #ffffff;
+      font-weight: 600;
+    }
+
     .btn-batch-send:hover:not(:disabled) {
       background: var(--success);
       color: #fff;
@@ -1218,6 +1272,21 @@
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
           Enviar listos
         </button>
+        <button type="button" class="btn-batch btn-batch-reset" id="btnBatchReset" title="Reiniciar los estados de enviados para volver a enviarlos hoy">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          🔄 Reenviar todo hoy
+        </button>
+        <button type="button" class="btn-batch btn-batch-excel" id="btnCopyExcel" title="Copiar base de datos completa de contactos para pegar en Excel o Sheets">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+          📋 Copiar a Excel
+        </button>
+      </div>
+
+      <!-- Filtros por estado -->
+      <div class="filter-tabs-row" id="filterTabsRow">
+        <button type="button" class="filter-tab active" data-filter="all" id="filterAll">Todos (<span id="countAll">0</span>)</button>
+        <button type="button" class="filter-tab" data-filter="pending" id="filterPending">Pendientes (<span id="countPending">0</span>)</button>
+        <button type="button" class="filter-tab" data-filter="sent" id="filterSent">Enviados (<span id="countSent">0</span>)</button>
       </div>
     </div>
 
@@ -1458,6 +1527,7 @@
             const records = request.result || [];
             db.close();
 
+            records.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
             const restored = records.map(rec => {
               const originalFile = rec.originalBlob;
               const originalPreview = URL.createObjectURL(originalFile);
@@ -1489,7 +1559,7 @@
               };
             });
 
-            restored.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+            restored.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
             resolve(restored);
           };
           request.onerror = () => {
@@ -1547,6 +1617,13 @@
     const btnClearQueue = document.getElementById('btnClearQueue');
     const btnBatchScan = document.getElementById('btnBatchScan');
     const btnBatchSend = document.getElementById('btnBatchSend');
+    const btnBatchReset = document.getElementById('btnBatchReset');
+    const btnCopyExcel = document.getElementById('btnCopyExcel');
+    const filterTabsRow = document.getElementById('filterTabsRow');
+    const countAll = document.getElementById('countAll');
+    const countPending = document.getElementById('countPending');
+    const countSent = document.getElementById('countSent');
+    let currentFilter = 'all';
     const cardsContainer = document.getElementById('cardsContainer');
     const emptyState = document.getElementById('emptyState');
     const toast = document.getElementById('toast');
@@ -1878,7 +1955,7 @@
           timestamp: Date.now()
         };
 
-        itemsQueue.push(item);
+        itemsQueue.unshift(item);
         persistItemToDB(item);
         addedCount++;
       }
@@ -1900,6 +1977,71 @@
       addFilesToQueue(e.target.files);
       galleryInput.value = ''; // Permite seleccionar más archivos luego
     });
+
+    // Reinicio diario de estados para reenvío masivo
+    if (btnBatchReset) {
+      btnBatchReset.addEventListener('click', () => {
+        const sentItems = itemsQueue.filter(i => i.status === 'sent' || i.status === 'error');
+        if (sentItems.length === 0) {
+          showToast('ℹ️ No hay CVs con estado enviado para reiniciar.', 'info', 3000);
+          return;
+        }
+
+        if (confirm(`¿Confirmas reiniciar el estado de ${sentItems.length} currículums para volver a enviarlos hoy?`)) {
+          sentItems.forEach(item => {
+            item.status = item.email ? 'scanned' : 'idle';
+            item.statusText = item.email ? 'Listo para reenvío' : 'Sin escanear';
+            persistItemToDB(item);
+          });
+          renderQueue();
+          showToast(`🔄 <b>${sentItems.length} CVs reiniciados.</b> Ahora puedes presionar "Enviar listos" para despacharlos hoy.`, 'success', 5000);
+        }
+      });
+    }
+
+    // Copiar base de datos completa a Excel / Google Sheets
+    if (btnCopyExcel) {
+      btnCopyExcel.addEventListener('click', async () => {
+        if (itemsQueue.length === 0) {
+          showToast('⚠️ No hay currículums en la lista para copiar.', 'warning', 3000);
+          return;
+        }
+
+        const header = ['Email Destino', 'Categoría', 'Teléfono / WhatsApp', 'Dirección', 'Estado de Envío', 'Archivo'].join('\t');
+        const rows = itemsQueue.map(item => [
+          item.email || '',
+          item.category || '',
+          item.phone || '',
+          item.address || '',
+          item.status === 'sent' ? 'Enviado' : 'Pendiente',
+          item.name || ''
+        ].join('\t'));
+
+        const tsv = [header, ...rows].join('\n');
+
+        try {
+          await navigator.clipboard.writeText(tsv);
+          showToast(`📋 <b>¡Base de datos copiada!</b><br>Pégala en Google Sheets o Excel con Ctrl + V (${itemsQueue.length} registros).`, 'success', 5000);
+        } catch (err) {
+          showToast('❌ No se pudo copiar al portapapeles. Habilita los permisos del navegador.', 'error');
+        }
+      });
+    }
+
+    // Pestañas de filtrado (Todos / Pendientes / Enviados)
+    if (filterTabsRow) {
+      filterTabsRow.addEventListener('click', (e) => {
+        const tab = e.target.closest('.filter-tab');
+        if (!tab) return;
+        const filter = tab.getAttribute('data-filter');
+        if (!filter || filter === currentFilter) return;
+
+        currentFilter = filter;
+        filterTabsRow.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        renderQueue();
+      });
+    }
 
     btnClearQueue.addEventListener('click', () => {
       if (itemsQueue.length === 0) return;
@@ -1948,12 +2090,43 @@
 
       emptyState.style.display = 'none';
       queueToolbar.style.display = 'flex';
-      queueCount.textContent = itemsQueue.length;
+
+      // Actualizar contadores
+      const totalCount = itemsQueue.length;
+      const sentCount = itemsQueue.filter(i => i.status === 'sent').length;
+      const pendingCount = totalCount - sentCount;
+
+      queueCount.textContent = totalCount;
+      if (countAll) countAll.textContent = totalCount;
+      if (countPending) countPending.textContent = pendingCount;
+      if (countSent) countSent.textContent = sentCount;
+
+      // Filtrar elementos según pestaña seleccionada
+      let displayItems = itemsQueue;
+      if (currentFilter === 'pending') {
+        displayItems = itemsQueue.filter(i => i.status !== 'sent');
+      } else if (currentFilter === 'sent') {
+        displayItems = itemsQueue.filter(i => i.status === 'sent');
+      }
 
       // Limpiar contenedor conservando emptyState
       cardsContainer.innerHTML = '';
 
-      itemsQueue.forEach((item, index) => {
+      if (displayItems.length === 0) {
+        const noFilterItems = document.createElement('div');
+        noFilterItems.style.textAlign = 'center';
+        noFilterItems.style.padding = '30px 15px';
+        noFilterItems.style.color = 'var(--text-muted)';
+        noFilterItems.style.fontSize = '0.9rem';
+        noFilterItems.innerHTML = currentFilter === 'pending' 
+          ? '🎉 <b>¡No hay pendientes!</b> Todos los CVs de la lista han sido enviados hoy.'
+          : 'ℹ️ No hay CVs marcados como enviados aún.';
+        cardsContainer.appendChild(noFilterItems);
+        return;
+      }
+
+      displayItems.forEach((item) => {
+        const realIndex = itemsQueue.indexOf(item);
         const card = document.createElement('div');
         card.className = `cv-card ${item.status === 'sent' ? 'card-success' : ''} ${item.status === 'scanning' ? 'card-scanning' : ''}`;
         card.id = `card_${item.id}`;
@@ -1973,7 +2146,7 @@
         card.innerHTML = `
           <div class="card-header">
             <div class="card-meta">
-              <span class="card-number">#${index + 1}</span>
+              <span class="card-number">#${realIndex + 1}</span>
               <span class="card-filename" title="${item.name}">${item.name} (${item.sizeMb}MB)</span>
               ${item.isCropped ? '<span class="badge-cropped" title="Imagen con recorte activo">✂️ Recortada</span>' : ''}
               ${item.isCropped ? `<button type="button" class="btn-revert-crop" data-id="${item.id}" data-action="revert-crop" title="Restablecer foto original">↺ Original</button>` : ''}
@@ -2163,11 +2336,11 @@
               class="btn-card btn-card-send btn-card-send-full" 
               data-id="${item.id}" 
               data-action="send"
-              title="Enviar CV por correo"
-              ${item.status === 'scanning' || item.status === 'sending' || item.status === 'sent' || !item.email ? 'disabled' : ''}
+              title="${item.status === 'sent' ? 'Toca para reenviar este CV' : 'Enviar CV por Gmail'}"
+              ${item.status === 'scanning' || item.status === 'sending' || !item.email ? 'disabled' : ''}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-              ${item.status === 'sent' ? '✓ CV Enviado con éxito' : (!item.email ? 'Enviar CV (falta email)' : 'Enviar CV por Gmail')}
+              ${item.status === 'sent' ? '✓ CV Enviado (Toca para reenviar)' : (!item.email ? 'Enviar CV (falta email)' : 'Enviar CV por Gmail')}
             </button>
           </div>
         `;

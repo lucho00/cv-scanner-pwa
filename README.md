@@ -18,9 +18,16 @@ Aplicación Web Progresiva (**PWA**) mobile-first para capturar o subir imágene
 - **Detección de Dirección Postal y Google Maps**:
   - Reconoce direcciones físicas (Calles, Avenidas, Pasajes y numeración catastral).
   - Si un aviso no tiene correo electrónico ni WhatsApp, o para ubicar físicamente el comercio / entrevista, provee un botón directo **"🗺️ Ver en Google Maps"** para navegar de inmediato.
-- **Subida Dual (Cámara o Galería)**:
-  - Botón directo para tomar foto con la cámara trasera.
-  - Botón para explorar la galería de fotos o archivos locales (JPG, PNG, WEBP).
+- **Base de Datos y Reenvío Diario Masivo**:
+  - **Los más nuevos siempre arriba**: las capturas recientes se posicionan al inicio de la cola cronológicamente.
+  - **Botón "🔄 Reenviar todo hoy"**: reinicia los estados de los CVs enviados con un solo toque para volver a enviarlos todos al día siguiente sin tener que reingresar nada.
+  - **Botón "📋 Copiar a Excel"**: exporta toda tu lista de contactos acumulada en formato TSV para pegarla directamente en Google Sheets o Excel con `Ctrl + V`.
+  - **Pestañas de Filtrado**: visualiza rápidamente entre `Todos`, `Pendientes` y `Enviados`.
+  - **Reenvío Individual Dinámico**: cualquier tarjeta enviada permite volver a enviar su correo tocando directamente el botón de estado.
+- **Conexión Inteligente por Carpeta Principal de Drive**:
+  - Detecta automáticamente todas las subcarpetas dentro de `CARPETA_PRINCIPAL_ID` sin necesidad de configurar IDs individuales.
+  - Soporta coincidencia insensible a tildes y mayúsculas (`Atencion al publico` == `Atención al público`).
+  - Permite sincronizar envíos automáticamente en Google Sheets y ejecutar macros de despacho masivo desde la planilla.
 - **Herramienta Integrada de Recorte y Zoom (Cropper.js)**:
   - Permite hacer zoom táctil (pinch-to-zoom), rotar fotos tomadas de lado (-90° / +90°) y encuadrar con precisión quirúrgica el bloque de datos de contacto o email.
   - Botón directo "⚡ Recortar y Leer" para escanear instantáneamente la selección.
