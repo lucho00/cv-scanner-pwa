@@ -1,6 +1,14 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#0b0f19">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="CV Scanner">
+  <meta name="application-name" content="CV Scanner">
 
   <title>CV Scanner & Sender - PWA Multicarga</title>
 
@@ -134,35 +142,6 @@
     .btn-settings:active {
       border-color: var(--border-focus);
       color: #fff;
-    }
-
-    .btn-switch-account {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      background: rgba(30, 41, 59, 0.75);
-      border: 1px solid var(--border-color);
-      color: var(--text-secondary);
-      font-family: inherit;
-      font-size: 0.78rem;
-      font-weight: 500;
-      padding: 5px 12px;
-      border-radius: 20px;
-      cursor: pointer;
-      text-decoration: none;
-      transition: all 0.2s ease;
-      touch-action: manipulation;
-    }
-
-    .btn-switch-account:hover {
-      background: var(--bg-input-focus);
-      color: var(--text-primary);
-      border-color: var(--primary);
-      transform: translateY(-1px);
-    }
-
-    .btn-switch-account:active {
-      transform: scale(0.96);
     }
 
     .app-header {
@@ -1230,15 +1209,6 @@
         CV Scanner & Sender
       </h1>
       <p class="app-subtitle">Carga dinámica de imágenes con asignación de categoría individual</p>
-      <div style="margin-top: 10px;">
-        <button type="button" class="btn-switch-account" onclick="cambiarCuentaGoogle();" title="Alternar entre tus cuentas de Google">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-            <circle cx="12" cy="7" r="4"></circle>
-          </svg>
-          Cambiar Cuenta
-        </button>
-      </div>
     </header>
 
     <!-- Banner aviso de configuración backend -->
@@ -1670,26 +1640,8 @@
     const zoomImg = document.getElementById('zoomImg');
     const btnCloseZoom = document.getElementById('btnCloseZoom');
 
-    function cambiarCuentaGoogle() {
-      const backend = (typeof getBackendUrl === 'function' ? getBackendUrl() : '').trim();
-      // Si la URL es de Google Apps Script, Google permite usar continue
-      if (backend && backend.startsWith('https://script.google.com/')) {
-        window.top.location.href = 'https://accounts.google.com/AccountChooser?continue=' + encodeURIComponent(backend);
-        return;
-      }
-      // Si es GitHub Pages u otro dominio, abrir AccountChooser limpio (evita el Error 400 Bad Request de Google)
-      window.top.location.href = 'https://accounts.google.com/AccountChooser';
-    }
-
     function getBackendUrl() {
-      const stored = (localStorage.getItem('cv_scanner_backend_url') || '').trim();
-      if (stored && stored.startsWith('https://script.google.com/')) {
-        return stored;
-      }
-      if (typeof APPS_SCRIPT_AUTO_URL !== 'undefined' && APPS_SCRIPT_AUTO_URL && APPS_SCRIPT_AUTO_URL.startsWith('https://script.google.com/')) {
-        return APPS_SCRIPT_AUTO_URL.trim();
-      }
-      return stored || '';
+      return localStorage.getItem('cv_scanner_backend_url') || '';
     }
 
     function checkBackendConfig() {
@@ -3138,23 +3090,12 @@
         console.warn('POST directo no completado, activando fallback GET...', postErr);
       }
 
-      // Intento 2: Fallback GET (con soporte de todas las acciones vía doGet)
+      // Intento 2: Fallback GET (acción sendCV vía doGet)
       try {
         const params = new URLSearchParams();
-        const action = payload.action || 'sendCV';
-        params.append('action', action);
-
-        if (action === 'sendCV') {
-          params.append('email', payload.emailDestino || payload.email || '');
-          params.append('category', payload.categoriaSeleccionada || payload.category || '');
-        } else if (action === 'syncSheet') {
-          if (payload.items && payload.items.length > 0) {
-            params.append('items', JSON.stringify(payload.items));
-          }
-        } else if (action === 'sendAllFromSheet') {
-          params.append('resetFirst', payload.resetFirst ? 'true' : 'false');
-        }
-
+        params.append('action', 'sendCV');
+        params.append('email', payload.emailDestino || payload.email || '');
+        params.append('category', payload.categoriaSeleccionada || payload.category || '');
         if (payload.apiToken) {
           params.append('apiToken', payload.apiToken);
         }
