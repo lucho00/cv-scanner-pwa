@@ -3138,12 +3138,23 @@
         console.warn('POST directo no completado, activando fallback GET...', postErr);
       }
 
-      // Intento 2: Fallback GET (acción sendCV vía doGet)
+      // Intento 2: Fallback GET (con soporte de todas las acciones vía doGet)
       try {
         const params = new URLSearchParams();
-        params.append('action', 'sendCV');
-        params.append('email', payload.emailDestino || payload.email || '');
-        params.append('category', payload.categoriaSeleccionada || payload.category || '');
+        const action = payload.action || 'sendCV';
+        params.append('action', action);
+
+        if (action === 'sendCV') {
+          params.append('email', payload.emailDestino || payload.email || '');
+          params.append('category', payload.categoriaSeleccionada || payload.category || '');
+        } else if (action === 'syncSheet') {
+          if (payload.items && payload.items.length > 0) {
+            params.append('items', JSON.stringify(payload.items));
+          }
+        } else if (action === 'sendAllFromSheet') {
+          params.append('resetFirst', payload.resetFirst ? 'true' : 'false');
+        }
+
         if (payload.apiToken) {
           params.append('apiToken', payload.apiToken);
         }

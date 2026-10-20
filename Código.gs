@@ -84,9 +84,20 @@ function getSpreadsheet() {
  * Obtiene la pestaña de datos (por defecto la primera hoja)
  */
 function getTargetSheet() {
-  const ss = getSpreadsheet();
-  if (!ss) return null;
-  return ss.getActiveSheet() || ss.getSheets()[0];
+  try {
+    const ss = getSpreadsheet();
+    if (!ss) {
+      Logger.log('⚠️ getSpreadsheet() retornó null. Verifica SPREADSHEET_ID.');
+      return null;
+    }
+    const sheets = ss.getSheets();
+    if (!sheets || sheets.length === 0) return null;
+    // Siempre usar la primera hoja del libro para evitar fallos con getActiveSheet()
+    return sheets[0];
+  } catch (err) {
+    Logger.log('⚠️ Error en getTargetSheet(): ' + err.toString());
+    return null;
+  }
 }
 
 /**
@@ -485,6 +496,19 @@ function doGet(e) {
         total: filas.length,
         contactos: filas
       });
+    }
+
+    if (action === 'syncSheet') {
+      let items = [];
+      if (params.items) {
+        try {
+          items = JSON.parse(params.items);
+        } catch (e) {
+          items = [];
+        }
+      }
+      const res = sincronizarConSheet(items);
+      return jsonResponse(res);
     }
 
     if (action === 'resetSheetStatus') {
