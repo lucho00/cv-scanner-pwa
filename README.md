@@ -18,10 +18,12 @@ Aplicación Web Progresiva (**PWA**) mobile-first para capturar o subir imágene
 - **Detección de Dirección Postal y Google Maps**:
   - Reconoce direcciones físicas (Calles, Avenidas, Pasajes y numeración catastral).
   - Si un aviso no tiene correo electrónico ni WhatsApp, o para ubicar físicamente el comercio / entrevista, provee un botón directo **"🗺️ Ver en Google Maps"** para navegar de inmediato.
-- **Base de Datos y Reenvío Diario Masivo**:
-  - **Los más nuevos siempre arriba**: las capturas recientes se posicionan al inicio de la cola cronológicamente.
-  - **Botón "🔄 Reenviar todo hoy"**: reinicia los estados de los CVs enviados con un solo toque para volver a enviarlos todos al día siguiente sin tener que reingresar nada.
-  - **Botón "📋 Copiar a Excel"**: exporta toda tu lista de contactos acumulada en formato TSV para pegarla directamente en Google Sheets o Excel con `Ctrl + V`.
+- **Sincronización Bidireccional con Google Sheets**:
+  - Conectado directamente a tu Google Sheet de postulaciones (`1wxaW6KsNdn-eIk8rrUPGXAeFET2T9005x-onPBFlH60`).
+  - **Botón "📊 Sincronizar Sheet"**: agrega automáticamente los nuevos correos extraídos de fotos al final de la planilla (evitando duplicados) y trae todos tus contactos guardados a la app.
+  - **Botón "🔄 Reenviar todo hoy"**: vacía la columna D (*Estado*) en el Google Sheet y reinicia la app para volver a mandar a todos hoy con un solo toque.
+  - **Envío masivo con actualización en tiempo real**: a medida que cada CV sale, se anota *"Enviado"* en la columna D de tu planilla.
+  - **Los más nuevos siempre arriba**: las capturas recientes se ordenan cronológicamente al inicio.
   - **Pestañas de Filtrado**: visualiza rápidamente entre `Todos`, `Pendientes` y `Enviados`.
   - **Reenvío Individual Dinámico**: cualquier tarjeta enviada permite volver a enviar su correo tocando directamente el botón de estado.
 - **Conexión Inteligente por Carpeta Principal de Drive**:

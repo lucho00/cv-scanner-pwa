@@ -6,13 +6,13 @@
  * 
  * Funcionalidades:
  * 1. Conexión automática con tu CARPETA PRINCIPAL de Drive (detecta subcarpetas por nombre).
- * 2. API doGet() y doPost() para la PWA móvil con bypass de CORS.
- * 3. Integración con Google Sheets para base de datos centralizada de envíos.
+ * 2. Conexión bidireccional con tu GOOGLE SHEET (agrega nuevos, vacía enviados, reenvía todo).
+ * 3. API doGet() y doPost() para la PWA móvil con bypass de CORS.
  * 4. Macros para ejecutar y resetear envíos masivos diarios directamente en Sheets.
  */
 
 // =========================================================================
-// 1. CONFIGURACIÓN PRINCIPAL DE DRIVE Y REMITENTE
+// 1. CONFIGURACIÓN PRINCIPAL DE DRIVE, SHEETS Y REMITENTE
 // =========================================================================
 
 /**
@@ -22,16 +22,15 @@
 const CARPETA_PRINCIPAL_ID = "1nfgYTpwADKl6lnCBue75xuDs3GYDpiAW";
 
 /**
+ * ID de tu Google Sheet (Base de Datos de postulaciones)
+ * URL: https://docs.google.com/spreadsheets/d/1wxaW6KsNdn-eIk8rrUPGXAeFET2T9005x-onPBFlH60/edit
+ */
+const SPREADSHEET_ID = "1wxaW6KsNdn-eIk8rrUPGXAeFET2T9005x-onPBFlH60";
+
+/**
  * Nombre del remitente para correos salientes
  */
 const NOMBRE_REMITENTE = "Luciano Bibbo";
-
-/**
- * ID opcional de tu Google Sheet para almacenar la base de datos de todos los envíos.
- * Si vinculas este script a una hoja (Extensiones > Apps Script), no necesitas poner el ID.
- * Si es un script independiente y quieres registrar en una hoja, pega su ID aquí:
- */
-const SPREADSHEET_ID = "";
 
 /**
  * Mapeo de respaldo de carpetas específicas en Google Drive (por si alguna estuviera fuera de la principal).
@@ -53,12 +52,230 @@ const CARPETAS_DRIVE = {
 const API_SECRET_TOKEN = '';
 
 // =========================================================================
-// 2. UTILIDADES DE BÚSQUEDA DINÁMICA DE CATEGORÍAS Y CARPETAS
+// 2. UTILIDADES DE GOOGLE SHEETS (BASE DE DATOS EN LA NUBE)
 // =========================================================================
 
 /**
- * Normaliza texto eliminando acentos, mayúsculas y espacios sobrantes
+ * Abre la hoja de cálculo configurada
  */
+function getSpreadsheet() {
+  if (SPREADSHEET_ID && SPREADSHEET_ID.trim().length > 10) {
+    return SpreadsheetApp.openById(SPREADSHEET_ID.trim());
+  }
+  try {
+    return SpreadsheetApp.getActiveSpreadsheet();
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * Obtiene la pestaña de datos (por defecto la primera hoja)
+ */
+function getTargetSheet() {
+  const ss = getSpreadsheet();
+  if (!ss) return null;
+  return ss.getActiveSheet() || ss.getSheets()[0];
+}
+
+/**
+ * Lee todas las filas existentes en el Google Sheet
+ * Columnas: [Email Destino, Categoria, Asunto, Estado]
+ */
+function leerFilasSheet() {
+  const sheet = getTargetSheet();
+  if (!sheet) return [];
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return [];
+
+  const range = sheet.getRange(2, 1, lastRow - 1, 4);
+  const values = range.getValues();
+
+  const filas = [];
+  for (let i = 0; i < values.length; i++) {
+    const row = values[i];
+    filas.push({
+      rowIndex: i + 2,
+      email: (row[0] || '').toString().trim(),
+      category: (row[1] || '').toString().trim(),
+      subject: (row[2] || '').toString().trim(),
+      status: (row[3] || '').toString().trim()
+    });
+  }
+  return filas;
+}
+
+/**
+ * Sincroniza la lista de la app con el Google Sheet:
+ * 1. Agrega los nuevos correos extraídos de las imágenes que no estén en la planilla.
+ * 2. Devuelve la lista completa (viejos + nuevos) para la app móvil.
+ */
+function sincronizarConSheet(itemsNuevos) {
+  const sheet = getTargetSheet();
+  if (!sheet) {
+    throw new Error('No se pudo acceder a la hoja de Google Sheets. Verifica el ID.');
+  }
+
+  // Asegurar encabezados si está vacía
+  if (sheet.getLastRow() === 0) {
+    sheet.appendRow(['Email Destino', 'Categoria', 'Asunto', 'Estado']);
+  }
+
+  const filasActuales = leerFilasSheet();
+  const mapaEmails = new Map();
+  filasActuales.forEach(f => {
+    if (f.email) mapaEmails.set(f.email.toLowerCase(), f);
+  });
+
+  let agregados = 0;
+  if (Array.isArray(itemsNuevos) && itemsNuevos.length > 0) {
+    for (let i = 0; i < itemsNuevos.length; i++) {
+      const item = itemsNuevos[i];
+      if (!item || !item.email) continue;
+
+      const emailLimpio = item.email.trim();
+      const emailLower = emailLimpio.toLowerCase();
+
+      // Si no existe en la planilla, lo agregamos como nueva fila
+      if (!mapaEmails.has(emailLower)) {
+        const cat = item.category || 'Administrativo';
+        const asunto = `Presentación para vacante de ${cat} - ${NOMBRE_REMITENTE}`;
+        const estadoInicial = item.status === 'sent' ? 'Enviado' : '';
+
+        sheet.appendRow([emailLimpio, cat, asunto, estadoInicial]);
+        mapaEmails.set(emailLower, {
+          email: emailLimpio,
+          category: cat,
+          subject: asunto,
+          status: estadoInicial
+        });
+        agregados++;
+      }
+    }
+  }
+
+  // Volver a leer la base de datos completa actualizada
+  const baseDeDatosCompleta = leerFilasSheet();
+  return {
+    success: true,
+    agregados: agregados,
+    total: baseDeDatosCompleta.length,
+    contactos: baseDeDatosCompleta
+  };
+}
+
+/**
+ * Vacía la columna D ("Estado") en el Google Sheet para reiniciar el reenvío diario
+ */
+function vaciarColumnaEnviadosSheet() {
+  const sheet = getTargetSheet();
+  if (!sheet) {
+    throw new Error('No se pudo acceder a la hoja de Google Sheets.');
+  }
+
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) {
+    return { success: true, count: 0, message: 'La planilla no tiene filas para vaciar.' };
+  }
+
+  // Limpiar rango de la columna D desde la fila 2
+  const range = sheet.getRange(2, 4, lastRow - 1, 1);
+  range.clearContent();
+
+  return {
+    success: true,
+    count: lastRow - 1,
+    message: `Se vaciaron los estados de ${lastRow - 1} filas en el Google Sheet. ¡Listos para reenviar!`
+  };
+}
+
+/**
+ * Actualiza o registra un envío en el Google Sheet
+ */
+function registrarOActualizarEnSheet(emailDestino, categoria, asunto, estado) {
+  try {
+    const sheet = getTargetSheet();
+    if (!sheet) return;
+
+    if (sheet.getLastRow() === 0) {
+      sheet.appendRow(['Email Destino', 'Categoria', 'Asunto', 'Estado']);
+    }
+
+    const emailLower = (emailDestino || '').toLowerCase().trim();
+    const lastRow = sheet.getLastRow();
+
+    if (lastRow >= 2) {
+      const values = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
+      for (let i = 0; i < values.length; i++) {
+        if ((values[i][0] || '').toString().toLowerCase().trim() === emailLower) {
+          // Actualizar estado en columna D (col 4)
+          sheet.getRange(i + 2, 4).setValue(estado);
+          if (categoria) sheet.getRange(i + 2, 2).setValue(categoria);
+          return;
+        }
+      }
+    }
+
+    // Si no estaba en el Sheet, agregarlo
+    sheet.appendRow([emailDestino, categoria, asunto, estado]);
+  } catch (err) {
+    Logger.log('Aviso al actualizar Sheet: ' + err.toString());
+  }
+}
+
+/**
+ * Envía todos los correos de la planilla (viejos y nuevos) recompletando la columna Estado
+ */
+function enviarTodosDesdeSheet(resetearPrimero = false) {
+  const sheet = getTargetSheet();
+  if (!sheet) {
+    throw new Error('No se pudo acceder al Google Sheet.');
+  }
+
+  if (resetearPrimero) {
+    vaciarColumnaEnviadosSheet();
+  }
+
+  const filas = leerFilasSheet();
+  let enviados = 0;
+  let errores = 0;
+  const resultados = [];
+
+  for (let i = 0; i < filas.length; i++) {
+    const fila = filas[i];
+    if (!fila.email || fila.status === 'Enviado') {
+      continue;
+    }
+
+    const res = enviarCVCategoria(fila.email, fila.category);
+    if (res.success) {
+      sheet.getRange(fila.rowIndex, 4).setValue('Enviado');
+      enviados++;
+    } else {
+      sheet.getRange(fila.rowIndex, 4).setValue('Error: ' + res.message);
+      errores++;
+    }
+    resultados.push({
+      email: fila.email,
+      category: fila.category,
+      ...res
+    });
+  }
+
+  return {
+    success: true,
+    total: filas.length,
+    enviados: enviados,
+    errores: errores,
+    resultados: resultados
+  };
+}
+
+// =========================================================================
+// 3. UTILIDADES DE BÚSQUEDA DINÁMICA EN GOOGLE DRIVE
+// =========================================================================
+
 function normalizarTexto(str) {
   return (str || '')
     .toString()
@@ -68,9 +285,6 @@ function normalizarTexto(str) {
     .trim();
 }
 
-/**
- * Obtiene la lista dinámica de categorías leyendo las subcarpetas de la Carpeta Principal
- */
 function obtenerCategorias() {
   const categorias = new Set();
 
@@ -86,7 +300,6 @@ function obtenerCategorias() {
     }
   }
 
-  // Si no se encontraron o como respaldo, agregar las categorías fijas
   if (categorias.size === 0) {
     Object.keys(CARPETAS_DRIVE).forEach(cat => categorias.add(cat));
   }
@@ -94,26 +307,18 @@ function obtenerCategorias() {
   return Array.from(categorias);
 }
 
-/**
- * Busca de forma inteligente la subcarpeta de una categoría:
- * 1. Por coincidencia en la Carpeta Principal (exacta o insensible a acentos/mayúsculas).
- * 2. Por ID directo en CARPETAS_DRIVE como respaldo.
- */
 function buscarCarpetaCategoria(categoriaSeleccionada) {
   if (!categoriaSeleccionada) return null;
 
-  // 1. Buscar en la carpeta principal
   if (CARPETA_PRINCIPAL_ID && CARPETA_PRINCIPAL_ID !== 'ID_CARPETA_PRINCIPAL_AQUI') {
     try {
       const carpetaPrincipal = DriveApp.getFolderById(CARPETA_PRINCIPAL_ID);
       
-      // Coincidencia exacta
       const directas = carpetaPrincipal.getFoldersByName(categoriaSeleccionada);
       if (directas.hasNext()) {
         return directas.next();
       }
 
-      // Coincidencia insensible a tildes (ej: "Atencion al publico" == "Atención al público")
       const catNorm = normalizarTexto(categoriaSeleccionada);
       const todas = carpetaPrincipal.getFolders();
       while (todas.hasNext()) {
@@ -127,7 +332,6 @@ function buscarCarpetaCategoria(categoriaSeleccionada) {
     }
   }
 
-  // 2. Buscar en diccionario CARPETAS_DRIVE si existe ID válido
   if (CARPETAS_DRIVE.hasOwnProperty(categoriaSeleccionada)) {
     const idDirecto = CARPETAS_DRIVE[categoriaSeleccionada];
     if (idDirecto && idDirecto.length >= 28 && idDirecto !== 'ID_CARPETA_AQUI') {
@@ -143,147 +347,7 @@ function buscarCarpetaCategoria(categoriaSeleccionada) {
 }
 
 // =========================================================================
-// 3. REGISTRO EN GOOGLE SHEETS (BASE DE DATOS EN LA NUBE)
-// =========================================================================
-
-/**
- * Anota automáticamente el envío en Google Sheets para control y reenvío diario
- */
-function registrarEnGoogleSheet(emailDestino, categoria, asunto, estado) {
-  try {
-    let ss = null;
-    if (SPREADSHEET_ID && SPREADSHEET_ID !== 'ID_PLANILLA_AQUI') {
-      ss = SpreadsheetApp.openById(SPREADSHEET_ID);
-    } else {
-      try {
-        ss = SpreadsheetApp.getActiveSpreadsheet();
-      } catch (e) {}
-    }
-
-    if (!ss) return;
-
-    let sheet = ss.getSheetByName('Envíos') || ss.getActiveSheet();
-    if (sheet.getLastRow() === 0) {
-      sheet.appendRow(['Email Destino', 'Categoría', 'Asunto', 'Estado', 'Fecha y Hora']);
-    }
-
-    const fechaStr = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'America/Argentina/Buenos_Aires', 'dd/MM/yyyy HH:mm:ss');
-    sheet.appendRow([emailDestino, categoria, asunto, estado, fechaStr]);
-  } catch (sheetErr) {
-    Logger.log('Aviso (Registro en Google Sheet omitido): ' + sheetErr.toString());
-  }
-}
-
-// =========================================================================
-// 4. ENDPOINTS WEB APP (doGet y doPost para la PWA)
-// =========================================================================
-
-function doGet(e) {
-  try {
-    const params = (e && e.parameter) ? e.parameter : {};
-    const action = params.action;
-
-    if (action === 'getCategories') {
-      return jsonResponse({
-        success: true,
-        categories: obtenerCategorias()
-      });
-    }
-
-    // Soporte para envío vía GET (fallback de máxima confiabilidad móvil)
-    if (action === 'sendCV') {
-      if (API_SECRET_TOKEN && params.apiToken !== API_SECRET_TOKEN) {
-        return jsonResponse({
-          success: false,
-          message: 'Acceso no autorizado: Token de seguridad inválido.'
-        });
-      }
-
-      const emailDestino = params.emailDestino || params.email;
-      const categoriaSeleccionada = params.categoriaSeleccionada || params.category;
-
-      const resultado = enviarCVCategoria(emailDestino, categoriaSeleccionada);
-      return jsonResponse(resultado);
-    }
-
-    return ContentService.createTextOutput(JSON.stringify({
-      status: 'online',
-      service: 'CV Scanner API Backend',
-      version: '3.0.0',
-      timestamp: new Date().toISOString()
-    })).setMimeType(ContentService.MimeType.JSON);
-
-  } catch (err) {
-    Logger.log('Error en doGet: ' + err.toString());
-    return jsonResponse({
-      success: false,
-      message: 'Error al procesar petición GET: ' + err.message
-    });
-  }
-}
-
-function doPost(e) {
-  try {
-    let payload = {};
-
-    if (e && e.postData && e.postData.contents) {
-      try {
-        payload = JSON.parse(e.postData.contents);
-      } catch (parseErr) {
-        payload = e.parameter || {};
-      }
-    } else if (e && e.parameter) {
-      payload = e.parameter;
-    }
-
-    if (API_SECRET_TOKEN && payload.apiToken !== API_SECRET_TOKEN) {
-      return jsonResponse({
-        success: false,
-        message: 'Acceso no autorizado: Token de seguridad inválido.'
-      });
-    }
-
-    if (Array.isArray(payload.items) && payload.items.length > 0) {
-      const results = [];
-      for (let i = 0; i < payload.items.length; i++) {
-        const item = payload.items[i];
-        const res = enviarCVCategoria(item.emailDestino || item.email, item.categoriaSeleccionada || item.category);
-        results.push({
-          id: item.id || i,
-          email: item.emailDestino || item.email,
-          category: item.categoriaSeleccionada || item.category,
-          ...res
-        });
-      }
-      return jsonResponse({
-        success: true,
-        batch: true,
-        results: results
-      });
-    }
-
-    const emailDestino = payload.emailDestino || payload.email;
-    const categoriaSeleccionada = payload.categoriaSeleccionada || payload.category;
-
-    const resultado = enviarCVCategoria(emailDestino, categoriaSeleccionada);
-    return jsonResponse(resultado);
-
-  } catch (error) {
-    Logger.log('Error en doPost(): ' + error.toString());
-    return jsonResponse({
-      success: false,
-      message: 'Error en el servidor: ' + (error.message || error.toString())
-    });
-  }
-}
-
-function jsonResponse(data) {
-  return ContentService.createTextOutput(JSON.stringify(data))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-// =========================================================================
-// 5. MOTOR DE ENVÍO DE CV MEDIANTE GMAIL
+// 4. MOTOR DE ENVÍO DE CV POR GMAIL
 // =========================================================================
 
 function enviarCVCategoria(emailDestino, categoriaSeleccionada) {
@@ -318,13 +382,11 @@ ${NOMBRE_REMITENTE}
       throw new Error('Debes seleccionar una categoría de CV.');
     }
 
-    // 1. Localizar la carpeta correspondiente
     const folder = buscarCarpetaCategoria(categoriaSeleccionada);
     if (!folder) {
       throw new Error(`No se encontró la carpeta de Drive para "${categoriaSeleccionada}". Verifica que exista una subcarpeta con ese nombre dentro de tu Carpeta Principal.`);
     }
 
-    // 2. Buscar archivos de CV válidos (PDF, Word o Google Doc)
     const files = folder.getFiles();
     const candidatos = [];
 
@@ -353,11 +415,9 @@ ${NOMBRE_REMITENTE}
       throw new Error(`La carpeta de Drive para "${categoriaSeleccionada}" está vacía o no contiene ningún archivo de CV (PDF o Word).`);
     }
 
-    // Seleccionar el archivo modificado más recientemente
     candidatos.sort((a, b) => b.updated - a.updated);
     const cvSeleccionado = candidatos[0];
 
-    // 3. Preparar archivo adjunto
     let adjuntoBlob;
     if (cvSeleccionado.isGoogleDoc) {
       adjuntoBlob = cvSeleccionado.file.getAs(MimeType.PDF);
@@ -366,7 +426,6 @@ ${NOMBRE_REMITENTE}
       adjuntoBlob = cvSeleccionado.file.getBlob();
     }
 
-    // 4. Enviar mediante GmailApp
     GmailApp.sendEmail(emailLimpio, ASUNTO_CORREO, CUERPO_CORREO, {
       name: NOMBRE_REMITENTE,
       attachments: [adjuntoBlob]
@@ -374,8 +433,8 @@ ${NOMBRE_REMITENTE}
 
     Logger.log(`[Éxito] CV "${cvSeleccionado.name}" enviado a "${emailLimpio}" [${categoriaSeleccionada}].`);
 
-    // 5. Registrar en Google Sheet
-    registrarEnGoogleSheet(emailLimpio, categoriaSeleccionada, ASUNTO_CORREO, 'Enviado');
+    // Sincronizar estado en Google Sheet
+    registrarOActualizarEnSheet(emailLimpio, categoriaSeleccionada, ASUNTO_CORREO, 'Enviado');
 
     return {
       success: true,
@@ -384,7 +443,7 @@ ${NOMBRE_REMITENTE}
 
   } catch (error) {
     Logger.log('Error en enviarCVCategoria(): ' + error.toString());
-    registrarEnGoogleSheet(emailDestino, categoriaSeleccionada, ASUNTO_CORREO, 'Error: ' + error.message);
+    registrarOActualizarEnSheet(emailDestino, categoriaSeleccionada, ASUNTO_CORREO, 'Error: ' + error.message);
     return {
       success: false,
       message: error.message || 'Ocurrió un error inesperado al procesar el envío del CV.'
@@ -393,48 +452,172 @@ ${NOMBRE_REMITENTE}
 }
 
 // =========================================================================
-// 6. MACROS COMPATIBLES PARA EJECUTAR DIRECTAMENTE EN GOOGLE SHEETS
+// 5. ENDPOINTS WEB APP (doGet y doPost para la PWA)
+// =========================================================================
+
+function doGet(e) {
+  try {
+    const params = (e && e.parameter) ? e.parameter : {};
+    const action = params.action;
+
+    if (action === 'getCategories') {
+      return jsonResponse({
+        success: true,
+        categories: obtenerCategorias()
+      });
+    }
+
+    if (action === 'getSheetData') {
+      const filas = leerFilasSheet();
+      return jsonResponse({
+        success: true,
+        total: filas.length,
+        contactos: filas
+      });
+    }
+
+    if (action === 'resetSheetStatus') {
+      const res = vaciarColumnaEnviadosSheet();
+      return jsonResponse(res);
+    }
+
+    if (action === 'sendAllFromSheet') {
+      const reset = params.resetFirst === 'true' || params.resetFirst === true;
+      const res = enviarTodosDesdeSheet(reset);
+      return jsonResponse(res);
+    }
+
+    if (action === 'sendCV') {
+      if (API_SECRET_TOKEN && params.apiToken !== API_SECRET_TOKEN) {
+        return jsonResponse({
+          success: false,
+          message: 'Acceso no autorizado: Token de seguridad inválido.'
+        });
+      }
+
+      const emailDestino = params.emailDestino || params.email;
+      const categoriaSeleccionada = params.categoriaSeleccionada || params.category;
+
+      const resultado = enviarCVCategoria(emailDestino, categoriaSeleccionada);
+      return jsonResponse(resultado);
+    }
+
+    return ContentService.createTextOutput(JSON.stringify({
+      status: 'online',
+      service: 'CV Scanner API Backend con Sheets',
+      version: '3.1.0',
+      spreadsheetId: SPREADSHEET_ID,
+      timestamp: new Date().toISOString()
+    })).setMimeType(ContentService.MimeType.JSON);
+
+  } catch (err) {
+    Logger.log('Error en doGet: ' + err.toString());
+    return jsonResponse({
+      success: false,
+      message: 'Error al procesar petición GET: ' + err.message
+    });
+  }
+}
+
+function doPost(e) {
+  try {
+    let payload = {};
+
+    if (e && e.postData && e.postData.contents) {
+      try {
+        payload = JSON.parse(e.postData.contents);
+      } catch (parseErr) {
+        payload = e.parameter || {};
+      }
+    } else if (e && e.parameter) {
+      payload = e.parameter;
+    }
+
+    if (API_SECRET_TOKEN && payload.apiToken !== API_SECRET_TOKEN) {
+      return jsonResponse({
+        success: false,
+        message: 'Acceso no autorizado: Token de seguridad inválido.'
+      });
+    }
+
+    const action = payload.action;
+
+    // Sincronizar items de la PWA con el Sheet
+    if (action === 'syncSheet') {
+      const res = sincronizarConSheet(payload.items || []);
+      return jsonResponse(res);
+    }
+
+    // Vaciar columna Estado en Sheet
+    if (action === 'resetSheetStatus') {
+      const res = vaciarColumnaEnviadosSheet();
+      return jsonResponse(res);
+    }
+
+    // Enviar todos los del Sheet
+    if (action === 'sendAllFromSheet') {
+      const res = enviarTodosDesdeSheet(payload.resetFirst === true);
+      return jsonResponse(res);
+    }
+
+    // Envío por lote desde la PWA
+    if (Array.isArray(payload.items) && payload.items.length > 0) {
+      const results = [];
+      for (let i = 0; i < payload.items.length; i++) {
+        const item = payload.items[i];
+        const res = enviarCVCategoria(item.emailDestino || item.email, item.categoriaSeleccionada || item.category);
+        results.push({
+          id: item.id || i,
+          email: item.emailDestino || item.email,
+          category: item.categoriaSeleccionada || item.category,
+          ...res
+        });
+      }
+      return jsonResponse({
+        success: true,
+        batch: true,
+        results: results
+      });
+    }
+
+    // Envío individual
+    const emailDestino = payload.emailDestino || payload.email;
+    const categoriaSeleccionada = payload.categoriaSeleccionada || payload.category;
+
+    const resultado = enviarCVCategoria(emailDestino, categoriaSeleccionada);
+    return jsonResponse(resultado);
+
+  } catch (error) {
+    Logger.log('Error en doPost(): ' + error.toString());
+    return jsonResponse({
+      success: false,
+      message: 'Error en el servidor: ' + (error.message || error.toString())
+    });
+  }
+}
+
+function jsonResponse(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// =========================================================================
+// 6. MACROS PARA EJECUTAR DIRECTAMENTE DESDE LA INTERFAZ DE GOOGLE SHEETS
 // =========================================================================
 
 /**
  * Macro para tu Google Sheet:
- * Recorre las filas desde la fila 2 y envía los CVs de los que no digan "Enviado".
+ * Envía los CVs de todas las filas pendientes y marca "Enviado".
  */
 function enviarMailsConCV() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var data = sheet.getDataRange().getValues();
-
-  for (var i = 1; i < data.length; i++) {
-    var emailDestino = data[i][0];
-    var categoria = data[i][1];
-    var estado = data[i][3];
-
-    if (!emailDestino || estado === "Enviado") {
-      continue;
-    }
-
-    var resultado = enviarCVCategoria(emailDestino, categoria);
-    if (resultado.success) {
-      sheet.getRange(i + 1, 4).setValue("Enviado");
-    } else {
-      sheet.getRange(i + 1, 4).setValue("Error: " + resultado.message);
-    }
-  }
+  return enviarTodosDesdeSheet(false);
 }
 
 /**
  * Macro para tu Google Sheet:
- * Limpia la columna D (Estado) con un clic para volver a enviar todo al día siguiente.
+ * Vacía la columna Estado para volver a enviar todo al día siguiente.
  */
 function resetearColumnaEnviados() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
-  var data = sheet.getDataRange().getValues();
-
-  for (var i = 1; i < data.length; i++) {
-    var val = data[i][3];
-    if (val === "Enviado" || (typeof val === "string" && val.startsWith("Error"))) {
-      sheet.getRange(i + 1, 4).setValue("");
-    }
-  }
-  SpreadsheetApp.getUi().alert("✅ Se limpiaron los estados de la columna 'Estado'. ¡Listos para volver a enviar hoy!");
+  var res = vaciarColumnaEnviadosSheet();
+  SpreadsheetApp.getUi().alert("✅ " + res.message);
 }
