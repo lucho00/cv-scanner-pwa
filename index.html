@@ -1465,6 +1465,9 @@
           phone: item.phone || '',
           allDetectedPhones: item.allDetectedPhones || [],
           address: item.address || '',
+          subject: item.subject || '',
+          isAutoSubject: !!item.isAutoSubject,
+          isCustomSubject: !!item.isCustomSubject,
           status: item.status,
           statusText: item.statusText,
           isAutoEmail: !!item.isAutoEmail,
@@ -1541,6 +1544,9 @@
                 phone: rec.phone || '',
                 allDetectedPhones: rec.allDetectedPhones || [],
                 address: rec.address || '',
+                subject: rec.subject || '',
+                isAutoSubject: !!rec.isAutoSubject,
+                isCustomSubject: !!rec.isCustomSubject,
                 status: rec.status,
                 statusText: rec.statusText,
                 isAutoEmail: rec.isAutoEmail,
@@ -1936,6 +1942,9 @@
           phone: '',
           allDetectedPhones: [],
           address: '',
+          subject: '',
+          isAutoSubject: false,
+          isCustomSubject: false,
           status: 'idle', // 'idle' | 'scanning' | 'scanned' | 'sending' | 'sent' | 'error'
           statusText: 'Sin escanear',
           isAutoEmail: false,
@@ -2146,6 +2155,22 @@
                 ` : ''}
               </div>
 
+              <!-- Asunto del Correo (Se muestra cuando hay correo) -->
+              <div class="field-group field-group-subject" id="subjectGroup_${item.id}" style="${item.email ? '' : 'display: none;'}">
+                <label class="field-label">
+                  <span>📝 Asunto del Correo</span>
+                  ${item.isAutoSubject ? '<span class="field-label-tag">✓ OCR</span>' : '<span style="font-size: 0.65rem; color: var(--text-muted); font-weight: normal;">(Personalizable)</span>'}
+                </label>
+                <input 
+                  type="text" 
+                  class="card-input" 
+                  data-id="${item.id}" 
+                  data-action="subject"
+                  placeholder="Ej: Ref: Cajero - Luciano Bibbo" 
+                  value="${item.subject !== undefined && item.subject !== '' ? item.subject : `Presentación para vacante de ${item.category || 'Administrativo'} - Luciano Bibbo`}"
+                />
+              </div>
+
               <!-- WhatsApp / Teléfono -->
               <div class="field-group">
                 <label class="field-label">
@@ -2317,6 +2342,9 @@
         const item = itemsQueue.find(i => i.id === id);
         if (item && emailChoice) {
           item.email = emailChoice;
+          if (!item.subject) {
+            item.subject = `Presentación para vacante de ${item.category} - Luciano Bibbo`;
+          }
           persistItemToDB(item);
           renderQueue();
           showToast(`✉️ Correo seleccionado: <b>${emailChoice}</b>`, 'info', 2000);
@@ -2370,9 +2398,31 @@
       if (action === 'email') {
         item.email = target.value.trim();
         item.isAutoEmail = false;
+        if (!item.subject) {
+          item.subject = `Presentación para vacante de ${item.category} - Luciano Bibbo`;
+        }
+        const cardElem = target.closest('.card-item');
+        if (cardElem) {
+          const subjGroup = cardElem.querySelector('.field-group-subject');
+          if (subjGroup) subjGroup.style.display = item.email ? 'flex' : 'none';
+          const subjInput = cardElem.querySelector('[data-action="subject"]');
+          if (subjInput && !subjInput.value) subjInput.value = item.subject;
+        }
+        persistItemToDB(item);
+      } else if (action === 'subject') {
+        item.subject = target.value;
+        item.isCustomSubject = true;
         persistItemToDB(item);
       } else if (action === 'category') {
         item.category = target.value;
+        if (!item.isCustomSubject) {
+          item.subject = `Presentación para vacante de ${item.category} - Luciano Bibbo`;
+          const cardElem = target.closest('.card-item');
+          if (cardElem) {
+            const subjInput = cardElem.querySelector('[data-action="subject"]');
+            if (subjInput) subjInput.value = item.subject;
+          }
+        }
         persistItemToDB(item);
       } else if (action === 'phone') {
         item.phone = target.value.trim();
@@ -2439,6 +2489,24 @@
     /**
      * Extrae correos electrónicos con ranking de confianza y búsqueda guiada por palabras clave
      */
+    function extractSubject(rawText) {
+      if (!rawText) return '';
+      const text = rawText.replace(/\r\n/g, '\n');
+      const lines = text.split('\n');
+
+      const subjectRegex = /(?:asunto(?:\s+del\s+(?:mail|correo))?|ref(?:\.|erencia)?|puesto(?:\s+a\s+cubrir)?|vacante|indicar(?:\s+en\s+el\s+asunto)?)\s*[:\-–]\s*([^\n\r,;.]{3,45})/i;
+      for (let line of lines) {
+        const match = line.match(subjectRegex);
+        if (match && match[1]) {
+          let s = match[1].trim().replace(/\s+/g, ' ').replace(/^["'«]+|["'»]+$/g, '').trim();
+          if (s.length >= 3 && s.length <= 45) {
+            return `${s} - Luciano Bibbo`;
+          }
+        }
+      }
+      return '';
+    }
+
     function extractEmails(rawText) {
       if (!rawText) return [];
       const text = cleanOcrText(rawText);
@@ -2833,11 +2901,24 @@
 
         let detectedCount = 0;
 
+        let detectedSubject = extractSubject(cleanText);
+        if (!detectedSubject && fallbackText) {
+          detectedSubject = extractSubject(fallbackText);
+        }
+
         if (emails.length > 0) {
           item.email = emails[0];
           item.allDetectedEmails = emails;
           item.isAutoEmail = true;
           detectedCount++;
+        }
+
+        if (detectedSubject) {
+          item.subject = detectedSubject;
+          item.isAutoSubject = true;
+          item.isCustomSubject = true;
+        } else if (item.email && !item.subject) {
+          item.subject = `Presentación para vacante de ${item.category} - Luciano Bibbo`;
         }
 
         if (phones.length > 0) {
@@ -2949,6 +3030,9 @@
         if (action === 'sendCV') {
           params.append('email', payload.emailDestino || payload.email || '');
           params.append('category', payload.categoriaSeleccionada || payload.category || '');
+          if (payload.asunto || payload.subject) {
+            params.append('asunto', payload.asunto || payload.subject);
+          }
         } else if (action === 'syncSheet') {
           if (payload.items && payload.items.length > 0) {
             params.append('items', JSON.stringify(payload.items));
@@ -2999,7 +3083,9 @@
         return;
       }
 
-      if (!confirm(`¿Confirmas el envío de tu CV a:\n\n✉️ ${item.email}\n📂 Categoría: ${item.category}?`)) {
+      const finalSubject = (item.subject || '').trim() || `Presentación para vacante de ${item.category} - Luciano Bibbo`;
+
+      if (!confirm(`¿Confirmas el envío de tu CV a:\n\n✉️ ${item.email}\n📁 Categoría: ${item.category}\n📝 Asunto: ${finalSubject}?`)) {
         return;
       }
 
@@ -3010,7 +3096,8 @@
       try {
         const data = await realizarEnvioBackend(backendUrl, {
           emailDestino: item.email,
-          categoriaSeleccionada: item.category
+          categoriaSeleccionada: item.category,
+          asunto: finalSubject
         });
 
         if (data && data.success) {
@@ -3077,9 +3164,11 @@
         renderQueue();
 
         try {
+          const finalSubject = (item.subject || '').trim() || `Presentación para vacante de ${item.category} - Luciano Bibbo`;
           const data = await realizarEnvioBackend(backendUrl, {
             emailDestino: item.email,
-            categoriaSeleccionada: item.category
+            categoriaSeleccionada: item.category,
+            asunto: finalSubject
           });
           if (data && data.success) {
             item.status = 'sent';

@@ -3,7 +3,7 @@
  * Habilita instalación nativa, caché offline y cumplimiento de criterios PWA.
  */
 
-const CACHE_NAME = 'cv-scanner-v13';
+const CACHE_NAME = 'cv-scanner-v14';
 const ASSETS_TO_CACHE = [
   './',
   './index.html',

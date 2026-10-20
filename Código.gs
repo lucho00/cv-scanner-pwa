@@ -355,23 +355,7 @@ function buscarCarpetaCategoria(categoriaSeleccionada) {
 // 4. MOTOR DE ENVÍO DE CV POR GMAIL
 // =========================================================================
 
-function enviarCVCategoria(emailDestino, categoriaSeleccionada) {
-  const ASUNTO_CORREO = `Presentación para vacante de ${categoriaSeleccionada} - ${NOMBRE_REMITENTE}`;
-  const CUERPO_CORREO = 
-`Estimado/a responsable de selección,
-
-Espero que se encuentre muy bien.
-
-Le escribo para presentar mi postulación a las vacantes correspondientes al área de ${categoriaSeleccionada}. Adjunto a este correo encontrará mi Currículum Vitae actualizado con el detalle de mi experiencia laboral, formación y datos de contacto.
-
-Quedo a su disposición ante cualquier consulta o para coordinar una entrevista.
-
-Muchas gracias por su tiempo y consideración.
-
-Atentamente,
-${NOMBRE_REMITENTE}
-`;
-
+function enviarCVCategoria(emailDestino, categoriaSeleccionada, asuntoPersonalizado) {
   try {
     if (!emailDestino || typeof emailDestino !== 'string') {
       throw new Error('Debes indicar un correo electrónico de destino.');
@@ -386,6 +370,25 @@ ${NOMBRE_REMITENTE}
     if (!categoriaSeleccionada) {
       throw new Error('Debes seleccionar una categoría de CV.');
     }
+
+    const ASUNTO_CORREO = (asuntoPersonalizado && asuntoPersonalizado.toString().trim().length > 0)
+      ? asuntoPersonalizado.toString().trim()
+      : `Presentación para vacante de ${categoriaSeleccionada} - ${NOMBRE_REMITENTE}`;
+
+    const CUERPO_CORREO = 
+`Estimado/a responsable de selección,
+
+Espero que se encuentre muy bien.
+
+Le escribo para presentar mi postulación a las vacantes correspondientes al área de ${categoriaSeleccionada}. Adjunto a este correo encontrará mi Currículum Vitae actualizado con el detalle de mi experiencia laboral, formación y datos de contacto.
+
+Quedo a su disposición ante cualquier consulta o para coordinar una entrevista.
+
+Muchas gracias por su tiempo y consideración.
+
+Atentamente,
+${NOMBRE_REMITENTE}
+`;
 
     const folder = buscarCarpetaCategoria(categoriaSeleccionada);
     if (!folder) {
@@ -515,8 +518,9 @@ function doGet(e) {
 
       const emailDestino = params.emailDestino || params.email;
       const categoriaSeleccionada = params.categoriaSeleccionada || params.category;
+      const asunto = params.asunto || params.subject || '';
 
-      const resultado = enviarCVCategoria(emailDestino, categoriaSeleccionada);
+      const resultado = enviarCVCategoria(emailDestino, categoriaSeleccionada, asunto);
       return jsonResponse(resultado);
     }
 
@@ -583,11 +587,16 @@ function doPost(e) {
       const results = [];
       for (let i = 0; i < payload.items.length; i++) {
         const item = payload.items[i];
-        const res = enviarCVCategoria(item.emailDestino || item.email, item.categoriaSeleccionada || item.category);
+        const res = enviarCVCategoria(
+          item.emailDestino || item.email, 
+          item.categoriaSeleccionada || item.category,
+          item.asunto || item.subject || ''
+        );
         results.push({
           id: item.id || i,
           email: item.emailDestino || item.email,
           category: item.categoriaSeleccionada || item.category,
+          asunto: item.asunto || item.subject || '',
           ...res
         });
       }
@@ -601,8 +610,9 @@ function doPost(e) {
     // Envío individual
     const emailDestino = payload.emailDestino || payload.email;
     const categoriaSeleccionada = payload.categoriaSeleccionada || payload.category;
+    const asunto = payload.asunto || payload.subject || '';
 
-    const resultado = enviarCVCategoria(emailDestino, categoriaSeleccionada);
+    const resultado = enviarCVCategoria(emailDestino, categoriaSeleccionada, asunto);
     return jsonResponse(resultado);
 
   } catch (error) {
