@@ -2494,11 +2494,24 @@
       const text = rawText.replace(/\r\n/g, '\n');
       const lines = text.split('\n');
 
-      const subjectRegex = /(?:asunto(?:\s+del\s+(?:mail|correo))?|ref(?:\.|erencia)?|puesto(?:\s+a\s+cubrir)?|vacante|indicar(?:\s+en\s+el\s+asunto)?)\s*[:\-–]\s*([^\n\r,;.]{3,45})/i;
+      // Patrón para capturar el asunto o puesto de referencia
+      const subjectRegex = /(?:asunto(?:\s+del\s+(?:mail|correo))?\s*[:\-–]\s*|ref(?:erencia)?\s*[:\-–.]\s*|puesto(?:\s+a\s+cubrir)?\s*[:\-–]\s*|vacante\s*[:\-–]\s*|(?:indicar|indicando|aclarar|aclarando|poner|poniendo)\s+(?:en\s+el\s+asunto|referencia|ref)\s*[:\-–]?\s*)([^.\n\r,;:()«»"'\t]{3,45})/i;
+
       for (let line of lines) {
         const match = line.match(subjectRegex);
         if (match && match[1]) {
-          let s = match[1].trim().replace(/\s+/g, ' ').replace(/^["'«]+|["'»]+$/g, '').trim();
+          let s = match[1].trim().replace(/\s+/g, ' ');
+          // Cortar si contiene separador de frase como " - Enviar", " - Zona", " - Mail", etc.
+          s = s.split(/\s+[-–|]\s+(?:enviar|cv|mail|correo|zona|remitir|postular|contacto|requisitos|sueldo|excluyente)/i)[0].trim();
+          // Cortar si contiene "en el cuerpo", "en el mail", etc.
+          s = s.split(/\s+en\s+el\s+(?:cuerpo|cv|mail|correo)/i)[0].trim();
+          // Cortar signos residuales
+          s = s.replace(/^[\-–:]+|[\-–:]+$/g, '').trim();
+
+          // Ignorar falsos positivos comunes de OCR
+          if (/^(?:comprobables|laborales|excluyente|inmediata|experiencia|cv|curriculum)$/i.test(s)) {
+            continue;
+          }
           if (s.length >= 3 && s.length <= 45) {
             return `${s} - Luciano Bibbo`;
           }
@@ -2839,6 +2852,7 @@
         renderQueue();
 
         let ocrText = '';
+        let fallbackText = '';
         const worker = await getSharedOcrWorker((m) => {
           if (m && m.progress) {
             const pct = Math.round(30 + m.progress * 60);
@@ -2876,8 +2890,6 @@
 
           const canvasPaso2 = await prepareCanvasForOcr(targetSource, item.isCropped, { forceInvert: true });
           updateProgress(70);
-
-          let fallbackText = '';
           if (worker) {
             const res2 = await worker.recognize(canvasPaso2);
             fallbackText = res2?.data?.text || '';
@@ -2901,7 +2913,7 @@
 
         let detectedCount = 0;
 
-        let detectedSubject = extractSubject(cleanText);
+        let detectedSubject = extractSubject(ocrText);
         if (!detectedSubject && fallbackText) {
           detectedSubject = extractSubject(fallbackText);
         }
